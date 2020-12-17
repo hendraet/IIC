@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
-from src.utils.cluster.data import cluster_twohead_create_dataloaders
+from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_clustering_dataloaders
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
 from src.utils.cluster.IID_losses import IID_loss
 from src.utils.cluster.render import save_progress
@@ -31,13 +31,15 @@ from src.utils.cluster.render import save_progress
 # Options ----------------------------------------------------------------------
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_ind", type=int, required=True)
+parser.add_argument("model_ind", type=int)
+parser.add_argument("dataset_root", type=str)
+parser.add_argument("train_json_path", type=str)
+parser.add_argument("val_json_path", type=str)
+parser.add_argument("test_json_path", type=str)
+
 parser.add_argument("--arch", type=str, default="ClusterNet4h")
 parser.add_argument("--opt", type=str, default="Adam")
 parser.add_argument("--mode", type=str, default="IID")
-
-parser.add_argument("--dataset", type=str, default="MNIST")
-parser.add_argument("--dataset_root", type=str)
 
 parser.add_argument("--gt_k", type=int, default=10)
 parser.add_argument("--output_k_A", type=int, required=True)
@@ -127,8 +129,6 @@ config.output_k = config.output_k_B  # for eval code
 assert (config.output_k_A >= config.gt_k)
 config.eval_mode = "hung"
 
-assert ("MNIST" == config.dataset)
-dataset_class = torchvision.datasets.MNIST
 config.train_partitions = [True, False]
 config.mapping_assignment_partitions = [True, False]
 config.mapping_test_partitions = [True, False]
@@ -178,9 +178,7 @@ else:
 
 # Model ------------------------------------------------------------------------
 def train(render_count=-1):
-    dataloaders_head_A, dataloaders_head_B, \
-    mapping_assignment_dataloader, mapping_test_dataloader = \
-        cluster_twohead_create_dataloaders(config)
+    dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = create_handwriting_clustering_dataloaders(config)
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
@@ -443,11 +441,13 @@ def train(render_count=-1):
         if config.double_eval:
             axarr[6].clear()
             axarr[6].plot(config.double_eval_acc)
-            axarr[6].set_title("double eval acc (best), top: %f" % max(config.double_eval_acc))
+            axarr[6].set_title("double eval acc (best), top: %f" %
+                               max(config.double_eval_acc))
 
             axarr[7].clear()
             axarr[7].plot(config.double_eval_avg_subhead_acc)
-            axarr[7].set_title("double eval acc (avg)), top: %f" % max(config.double_eval_avg_subhead_acc))
+            axarr[7].set_title("double eval acc (avg)), top: %f" %
+                               max(config.double_eval_avg_subhead_acc))
 
         fig.tight_layout()
         fig.canvas.draw_idle()

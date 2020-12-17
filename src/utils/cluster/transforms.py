@@ -311,12 +311,9 @@ def greyscale_make_transforms(config):
     # admin transforms
     if config.demean:
         print("demeaning data")
-        tf1_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
-        tf2_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
-        tf3_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
+        tf1_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
+        tf2_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
+        tf3_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
     else:
         print("not demeaning data")
 
