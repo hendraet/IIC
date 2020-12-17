@@ -63,7 +63,7 @@ class ClusterNet5gTwoHead(ResNet):
               trunk_features=False,
               penultimate_features=False):
     # default is "B" for use by eval code
-    # training script switches between A and B
+    # training script switches between A and model_indB
 
     x = self.trunk(x, penultimate_features=penultimate_features)
 

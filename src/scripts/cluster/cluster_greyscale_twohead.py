@@ -16,7 +16,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import src.archs as archs
-from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
+from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice, parse_greyscale_cluster_config
 from src.utils.cluster.data import cluster_twohead_create_dataloaders
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
 from src.utils.cluster.IID_losses import IID_loss
@@ -35,26 +35,22 @@ parser.add_argument("--model_ind", type=int, required=True)
 parser.add_argument("--arch", type=str, default="ClusterNet4h")
 parser.add_argument("--opt", type=str, default="Adam")
 parser.add_argument("--mode", type=str, default="IID")
-
 parser.add_argument("--dataset", type=str, default="MNIST")
 parser.add_argument("--dataset_root", type=str)
-
-parser.add_argument("--gt_k", type=int, default=10)
-parser.add_argument("--output_k_A", type=int, required=True)
-parser.add_argument("--output_k_B", type=int, required=True)
-
+parser.add_argument("--gt_k", type=int, default=10, help="actual number of classes in the dataset")
+parser.add_argument("--output_k_A", type=int, required=True,
+                    help="number of classes that head A should produce - can be used for overclustering")
+parser.add_argument("--output_k_B", type=int, required=True,
+                    help = "number of classes that head B should produce - can be used for overclustering")
 parser.add_argument("--lamb_A", type=float, default=1.0)
 parser.add_argument("--lamb_B", type=float, default=1.0)
-
 parser.add_argument("--lr", type=float, default=0.01)
 parser.add_argument("--lr_schedule", type=int, nargs="+", default=[])
 parser.add_argument("--lr_mult", type=float, default=0.1)
-
 parser.add_argument("--num_epochs", type=int, default=1000)
 parser.add_argument("--batch_sz", type=int, default=240)  # num pairs
 parser.add_argument("--num_dataloaders", type=int, default=3)
 parser.add_argument("--num_sub_heads", type=int, default=5)
-
 parser.add_argument("--out_root", type=str)
 parser.add_argument("--restart", dest="restart", default=False,
                     action="store_true")
@@ -62,22 +58,18 @@ parser.add_argument("--restart_from_best", dest="restart_from_best",
                     default=False, action="store_true")
 parser.add_argument("--test_code", dest="test_code", default=False,
                     action="store_true")
-
 parser.add_argument("--save_freq", type=int, default=20)
-
-parser.add_argument("--double_eval", default=False, action="store_true")
-
+parser.add_argument("--double_eval", default=False, action="store_true",
+                    help="Adds an additional evaluation step that evaluates the model in train mode instead of eval "
+                         "mode")
 parser.add_argument("--head_A_first", default=False, action="store_true")
 parser.add_argument("--head_A_epochs", type=int, default=1)
 parser.add_argument("--head_B_epochs", type=int, default=1)
-
-parser.add_argument("--batchnorm_track", default=False, action="store_true")
-
+parser.add_argument("--batchnorm_track", default=False, action="store_true",
+                    help="tracks the running stats of the batchnorm layers")
 parser.add_argument("--save_progression", default=False, action="store_true")
-
 parser.add_argument("--select_sub_head_on_loss", default=False,
                     action="store_true")
-
 # transforms
 parser.add_argument("--demean", dest="demean", default=False,
                     action="store_true")
@@ -87,7 +79,6 @@ parser.add_argument("--data_mean", type=float, nargs="+",
                     default=[0.5, 0.5, 0.5])
 parser.add_argument("--data_std", type=float, nargs="+",
                     default=[0.5, 0.5, 0.5])
-
 parser.add_argument("--crop_orig", dest="crop_orig", default=False,
                     action="store_true")
 parser.add_argument("--crop_other", dest="crop_other", default=False,
@@ -101,7 +92,6 @@ parser.add_argument("--tf3_crop_diff", dest="tf3_crop_diff", default=False,
                     action="store_true")
 parser.add_argument("--tf3_crop_sz", type=int, default=0)
 parser.add_argument("--input_sz", type=int, default=96)
-
 parser.add_argument("--rot_val", type=float, default=0.)
 parser.add_argument("--always_rot", dest="always_rot", default=False,
                     action="store_true")
@@ -109,8 +99,7 @@ parser.add_argument("--no_jitter", dest="no_jitter", default=False,
                     action="store_true")
 parser.add_argument("--no_flip", dest="no_flip", default=False,
                     action="store_true")
-
-config = parser.parse_args()
+config =  parser.parse_args()
 
 # Setup ------------------------------------------------------------------------
 
