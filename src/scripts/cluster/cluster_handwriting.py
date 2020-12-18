@@ -112,6 +112,7 @@ def parse_config():
 def setup(config):
     config.twohead = True
     config.in_channels = 1
+
     config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     assert (config.batch_sz % config.num_dataloaders == 0)
     config.dataloader_batch_sz = config.batch_sz / config.num_dataloaders
@@ -123,12 +124,13 @@ def setup(config):
     assert (config.output_k_A >= config.gt_k)
     config.eval_mode = "hung"
 
+    if not os.path.exists(config.out_dir):
+        os.makedirs(config.out_dir)
+
     config.train_partitions = [True, False]
     config.mapping_assignment_partitions = [True, False]
     config.mapping_test_partitions = [True, False]
 
-    if not os.path.exists(config.out_dir):
-        os.makedirs(config.out_dir)
     if config.restart:
         config_name = "config.pickle"
         net_name = "latest_net.pytorch"
@@ -194,9 +196,8 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
     optimiser = get_opt(config.opt)(net.module.parameters(), lr=config.lr)
     if config.restart:
-        if not (given_config is not None and given_config.num_epochs == 0):
-            print("loading latest opt")
-            optimiser.load_state_dict(torch.load(os.path.join(config.out_dir, opt_name)))
+        opt_path = os.path.join(config.out_dir, opt_name)
+        optimiser.load_state_dict(torch.load(opt_path))
 
     heads = ["B", "A"]
     if config.head_A_first:
@@ -256,15 +257,13 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                          sobel=False,
                          use_sub_head=sub_head)
 
-        print(
-            "Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
+        print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
         if config.double_eval:
             print("double eval: \n %s" % (nice(config.double_eval_stats[-1])))
         sys.stdout.flush()
         next_epoch = 1
 
-    fig, axarr = plt.subplots(6 + 2 * int(config.double_eval), sharex=False,
-                              figsize=(20, 20))
+    fig, axarr = plt.subplots(6 + 2 * int(config.double_eval), sharex=False, figsize=(20, 20))
 
     save_progression = hasattr(config, "save_progression") and config.save_progression
     if save_progression:
@@ -331,8 +330,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                     if not (curr_batch_sz == config.dataloader_batch_sz):
                         print("last batch sz %d" % curr_batch_sz)
 
-                    curr_total_batch_sz = curr_batch_sz * config.num_dataloaders  #
-                    # times 2
+                    curr_total_batch_sz = curr_batch_sz * config.num_dataloaders
                     all_imgs = all_imgs[:curr_total_batch_sz, :, :, :]
                     all_imgs_tf = all_imgs_tf[:curr_total_batch_sz, :, :, :]
 
@@ -354,8 +352,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                     avg_loss_no_lamb_batch /= config.num_sub_heads
 
                     if ((b_i % 100) == 0) or (e_i == next_epoch):
-                        print(
-                            "Model ind %d epoch %d head %s batch: %d avg loss %f avg loss no lamb %f time %s" % \
+                        print("Model ind %d epoch %d head %s batch: %d avg loss %f avg loss no lamb %f time %s" % \
                             (config.model_ind, e_i, head, b_i, avg_loss_batch.item(), avg_loss_no_lamb_batch.item(),
                              datetime.now()))
                         sys.stdout.flush()
@@ -391,6 +388,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
         # Eval
         # -----------------------------------------------------------------------
 
+        # Can also pick the subhead using the evaluation process (to do this, set use_sub_head=None)
         sub_head = None
         if config.select_sub_head_on_loss:
             sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=False, lamb=config.lamb_B)
@@ -400,8 +398,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                                sobel=False,
                                use_sub_head=sub_head)
 
-        print(
-            "Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
+        print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
         if config.double_eval:
             print("double eval: \n %s" % (nice(config.double_eval_stats[-1])))
         sys.stdout.flush()
@@ -433,13 +430,11 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
         if config.double_eval:
             axarr[6].clear()
             axarr[6].plot(config.double_eval_acc)
-            axarr[6].set_title("double eval acc (best), top: %f" %
-                               max(config.double_eval_acc))
+            axarr[6].set_title("double eval acc (best), top: %f" % max(config.double_eval_acc))
 
             axarr[7].clear()
             axarr[7].plot(config.double_eval_avg_subhead_acc)
-            axarr[7].set_title("double eval acc (avg)), top: %f" %
-                               max(config.double_eval_avg_subhead_acc))
+            axarr[7].set_title("double eval acc (avg)), top: %f" % max(config.double_eval_avg_subhead_acc))
 
         fig.tight_layout()
         fig.canvas.draw_idle()
@@ -449,36 +444,27 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
             net.module.cpu()
 
             if e_i % config.save_freq == 0:
-                torch.save(net.module.state_dict(),
-                           os.path.join(config.out_dir, "latest_net.pytorch"))
-                torch.save(optimiser.state_dict(),
-                           os.path.join(config.out_dir, "latest_optimiser.pytorch"))
-
+                torch.save(net.module.state_dict(), os.path.join(config.out_dir, "latest_net.pytorch"))
+                torch.save(optimiser.state_dict(), os.path.join(config.out_dir, "latest_optimiser.pytorch"))
                 config.last_epoch = e_i  # for last saved version
 
             if is_best:
                 # also serves as backup if hardware fails - less likely to hit this
-                torch.save(net.module.state_dict(),
-                           os.path.join(config.out_dir, "best_net.pytorch"))
-                torch.save(optimiser.state_dict(),
-                           os.path.join(config.out_dir, "best_optimiser.pytorch"))
+                torch.save(net.module.state_dict(), os.path.join(config.out_dir, "best_net.pytorch"))
+                torch.save(optimiser.state_dict(), os.path.join(config.out_dir, "best_optimiser.pytorch"))
 
-                with open(os.path.join(config.out_dir, "best_config.pickle"),
-                          'wb') as outfile:
+                with open(os.path.join(config.out_dir, "best_config.pickle"), 'wb') as outfile:
                     pickle.dump(config, outfile)
 
-                with open(os.path.join(config.out_dir, "best_config.txt"),
-                          "w") as text_file:
+                with open(os.path.join(config.out_dir, "best_config.txt"), "w") as text_file:
                     text_file.write("%s" % config)
 
             net.module.cuda()
 
-        with open(os.path.join(config.out_dir, "config.pickle"),
-                  'wb') as outfile:
+        with open(os.path.join(config.out_dir, "config.pickle"), 'wb') as outfile:
             pickle.dump(config, outfile)
 
-        with open(os.path.join(config.out_dir, "config.txt"),
-                  "w") as text_file:
+        with open(os.path.join(config.out_dir, "config.txt"), "w") as text_file:
             text_file.write("%s" % config)
 
         if config.test_code:
