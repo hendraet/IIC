@@ -116,14 +116,12 @@ def sobel_make_transforms(config, random_affine=False,
         tf1_list += [
             torchvision.transforms.RandomCrop(tuple(np.array([config.rand_crop_sz,
                                                               config.rand_crop_sz]))),
-            torchvision.transforms.Resize(tuple(np.array([config.input_sz,
-                                                          config.input_sz]))),
+            torchvision.transforms.Resize(config.input_sz)
         ]
         tf3_list += [
             torchvision.transforms.CenterCrop(tuple(np.array([config.rand_crop_sz,
                                                               config.rand_crop_sz]))),
-            torchvision.transforms.Resize(tuple(np.array([config.input_sz,
-                                                          config.input_sz]))),
+            torchvision.transforms.Resize(config.input_sz),
         ]
 
     print(
@@ -182,23 +180,18 @@ def sobel_make_transforms(config, random_affine=False,
         print("not using cutout")
 
     tf2_list += [
-        torchvision.transforms.Resize(tuple(np.array([config.input_sz,
-                                                      config.input_sz]))),
+        torchvision.transforms.Resize(config.input_sz),
         torchvision.transforms.RandomHorizontalFlip(),
-        torchvision.transforms.ColorJitter(brightness=0.4, contrast=0.4,
-                                           saturation=0.4, hue=0.125)
+        torchvision.transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.125)
     ]
 
     tf2_list.append(custom_greyscale_to_tensor(config.include_rgb))
 
     if config.demean:
         print("demeaning data")
-        tf1_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
-        tf2_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
-        tf3_list.append(torchvision.transforms.Normalize(mean=config.data_mean,
-                                                         std=config.data_std))
+        tf1_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
+        tf2_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
+        tf3_list.append(torchvision.transforms.Normalize(mean=config.data_mean, std=config.data_std))
     else:
         print("not demeaning data")
 
@@ -225,28 +218,30 @@ def greyscale_make_transforms(config):
     # tf1 and 3 transforms
     if config.crop_orig:
         # tf1 crop
+        tf1_crop_sz = [int(config.tf1_crop_sz * config.input_sz[0]), int(config.tf1_crop_sz * config.input_sz[1])]
         if config.tf1_crop == "random":
             print("selected random crop for tf1")
-            tf1_crop_fn = torchvision.transforms.RandomCrop(config.tf1_crop_sz)
+            tf1_crop_fn = torchvision.transforms.RandomCrop(tf1_crop_sz)
         elif config.tf1_crop == "centre_half":
             print("selected centre_half crop for tf1")
             tf1_crop_fn = torchvision.transforms.RandomChoice([
-                torchvision.transforms.RandomCrop(config.tf1_crop_sz),
-                torchvision.transforms.CenterCrop(config.tf1_crop_sz)
+                torchvision.transforms.RandomCrop(tf1_crop_sz),
+                torchvision.transforms.CenterCrop(tf1_crop_sz)
             ])
         elif config.tf1_crop == "centre":
             print("selected centre crop for tf1")
-            tf1_crop_fn = torchvision.transforms.CenterCrop(config.tf1_crop_sz)
+            tf1_crop_fn = torchvision.transforms.CenterCrop(tf1_crop_sz)
         else:
             assert (False)
         tf1_list += [tf1_crop_fn]
 
         if config.tf3_crop_diff:
             print("tf3 crop size is different to tf1")
-            tf3_list += [torchvision.transforms.CenterCrop(config.tf3_crop_sz)]
+            tf3_crop_sz = [int(config.tf3_crop_sz * config.input_sz[0]), int(config.tf3_crop_sz * config.input_sz[1])]
+            tf3_list += [torchvision.transforms.CenterCrop(tf3_crop_sz)]
         else:
             print("tf3 crop size is same as tf1")
-            tf3_list += [torchvision.transforms.CenterCrop(config.tf1_crop_sz)]
+            tf3_list += [torchvision.transforms.CenterCrop(tf1_crop_sz)]
 
     tf1_list += [torchvision.transforms.Resize(config.input_sz),
                  torchvision.transforms.ToTensor()]
@@ -268,7 +263,8 @@ def greyscale_make_transforms(config):
 
     if config.crop_other:
         imgs_tf_crops = []
-        for tf2_crop_sz in config.tf2_crop_szs:
+        for sz in config.tf2_crop_szs:
+            tf2_crop_sz = [int(sz * config.input_sz[0]), int(sz * config.input_sz[1])]
             if config.tf2_crop == "random":
                 print("selected random crop for tf2")
                 tf2_crop_fn = torchvision.transforms.RandomCrop(tf2_crop_sz)
@@ -284,13 +280,12 @@ def greyscale_make_transforms(config):
             else:
                 assert (False)
 
-            print("adding crop size option for imgs_tf: %d" % tf2_crop_sz)
+            print("adding crop size option for imgs_tf: %d, %d" % (tf2_crop_sz[0], tf2_crop_sz[1]))
             imgs_tf_crops.append(tf2_crop_fn)
 
         tf2_list += [torchvision.transforms.RandomChoice(imgs_tf_crops)]
 
-    tf2_list += [torchvision.transforms.Resize(tuple(np.array([config.input_sz,
-                                                               config.input_sz])))]
+    tf2_list += [torchvision.transforms.Resize(config.input_sz)]
 
     if not config.no_flip:
         print("adding flip")
@@ -301,8 +296,7 @@ def greyscale_make_transforms(config):
     if not config.no_jitter:
         print("adding jitter")
         tf2_list += [
-            torchvision.transforms.ColorJitter(brightness=0.4, contrast=0.4,
-                                               saturation=0.4, hue=0.125)]
+            torchvision.transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.125)]
     else:
         print("not adding jitter")
 

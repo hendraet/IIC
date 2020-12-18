@@ -15,7 +15,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import src.archs as archs
-from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice, parse_greyscale_cluster_config
+from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
 from src.utils.cluster.data import create_handwriting_clustering_dataloaders
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
 from src.utils.cluster.IID_losses import IID_loss
@@ -40,7 +40,7 @@ def parse_config():
     parser.add_argument("--opt", type=str, default="Adam")
     parser.add_argument("--mode", type=str, default="IID")
 
-    parser.add_argument("--gt_k", type=int, default=10, help="actual number of classes in the dataset")
+    parser.add_argument("--gt_k", type=int, default=5, help="actual number of classes in the dataset")
     parser.add_argument("--output_k_A", type=int, required=True,
                         help="number of classes that head A should produce - can be used for overclustering")
     parser.add_argument("--output_k_B", type=int, required=True,
@@ -89,19 +89,24 @@ def parse_config():
     parser.add_argument("--crop_other", dest="crop_other", default=False, action="store_true")
     parser.add_argument("--tf1_crop", type=str, default="random")  # type name
     parser.add_argument("--tf2_crop", type=str, default="random")
-    parser.add_argument("--tf1_crop_sz", type=int, default=84)
-    parser.add_argument("--tf2_crop_szs", type=int, nargs="+",
-                        default=[84])  # allow diff crop for imgs_tf
+    parser.add_argument("--tf1_crop_sz", type=float, default=0.9, help="factor of how much smaller the crop should be")
+    parser.add_argument("--tf2_crop_szs", type=float, nargs="+", default=[0.8, 0.9, 1.0])  # allow diff crop for imgs_tf
     parser.add_argument("--tf3_crop_diff", dest="tf3_crop_diff", default=False, action="store_true")
     parser.add_argument("--tf3_crop_sz", type=int, default=0)
-    parser.add_argument("--input_sz", type=int, default=96)
+    parser.add_argument("--input_sz", type=int, nargs="+", default=[64, 216])
 
     parser.add_argument("--rot_val", type=float, default=0.)
     parser.add_argument("--always_rot", dest="always_rot", default=False, action="store_true")
     parser.add_argument("--no_jitter", dest="no_jitter", default=False, action="store_true")
     parser.add_argument("--no_flip", dest="no_flip", default=False, action="store_true")
 
-    return parser.parse_args()
+    config = parser.parse_args()
+    if len(config.input_sz) == 1:
+        config.input_sz = config.input_sz + config.input_sz
+    elif len(config.input_sz) > 2:
+        config.input_sz = config.input_sz[:2]
+
+    return config
 
 
 def setup(config):
@@ -170,8 +175,11 @@ def setup(config):
 
 
 def train(config, given_config, net_name, opt_name, render_count=-1):
-    dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = create_handwriting_clustering_dataloaders(
-        config)
+    # TODO: enable semi-sup somehow
+    # TODO: tweak num_sub_heads?
+    # TODO: center crop ok or does it remove too much information if text is aligned left
+    dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader =\
+        create_handwriting_clustering_dataloaders(config)
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
@@ -215,17 +223,14 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
         if config.double_eval:
             config.double_eval_acc = config.double_eval_acc[:next_epoch]
-            config.double_eval_avg_subhead_acc = config.double_eval_avg_subhead_acc[
-                                                 :next_epoch]
+            config.double_eval_avg_subhead_acc = config.double_eval_avg_subhead_acc[:next_epoch]
             config.double_eval_stats = config.double_eval_stats[:next_epoch]
 
         config.epoch_loss_head_A = config.epoch_loss_head_A[:(next_epoch - 1)]
-        config.epoch_loss_no_lamb_head_A = config.epoch_loss_no_lamb_head_A[
-                                           :(next_epoch - 1)]
+        config.epoch_loss_no_lamb_head_A = config.epoch_loss_no_lamb_head_A[:(next_epoch - 1)]
 
         config.epoch_loss_head_B = config.epoch_loss_head_B[:(next_epoch - 1)]
-        config.epoch_loss_no_lamb_head_B = config.epoch_loss_no_lamb_head_B[
-                                           :(next_epoch - 1)]
+        config.epoch_loss_no_lamb_head_B = config.epoch_loss_no_lamb_head_B[:(next_epoch - 1)]
     else:
         config.epoch_acc = []
         config.epoch_avg_subhead_acc = []
@@ -244,8 +249,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net,
-                                              sobel=False, lamb=config.lamb_B)
+            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=False, lamb=config.lamb_B)
         _ = cluster_eval(config, net,
                          mapping_assignment_dataloader=mapping_assignment_dataloader,
                          mapping_test_dataloader=mapping_test_dataloader,
@@ -262,8 +266,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
     fig, axarr = plt.subplots(6 + 2 * int(config.double_eval), sharex=False,
                               figsize=(20, 20))
 
-    save_progression = hasattr(config, "save_progression") and \
-                       config.save_progression
+    save_progression = hasattr(config, "save_progression") and config.save_progression
     if save_progression:
         save_progression_count = 0
         save_progress(config, net, mapping_assignment_dataloader,
@@ -308,11 +311,11 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                     net.module.zero_grad()
 
                     all_imgs = torch.zeros((config.batch_sz, config.in_channels,
-                                            config.input_sz,
-                                            config.input_sz)).cuda()
+                                            config.input_sz[0],
+                                            config.input_sz[1])).cuda()
                     all_imgs_tf = torch.zeros((config.batch_sz, config.in_channels,
-                                               config.input_sz,
-                                               config.input_sz)).cuda()
+                                               config.input_sz[0],
+                                               config.input_sz[1])).cuda()
 
                     imgs_curr = tup[0][0]  # always the first
                     curr_batch_sz = imgs_curr.size(0)
@@ -322,10 +325,8 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
                         actual_batch_start = d_i * curr_batch_sz
                         actual_batch_end = actual_batch_start + curr_batch_sz
-                        all_imgs[actual_batch_start:actual_batch_end, :, :, :] = \
-                            imgs_curr.cuda()
-                        all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = \
-                            imgs_tf_curr.cuda()
+                        all_imgs[actual_batch_start:actual_batch_end, :, :, :] = imgs_curr.cuda()
+                        all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = imgs_tf_curr.cuda()
 
                     if not (curr_batch_sz == config.dataloader_batch_sz):
                         print("last batch sz %d" % curr_batch_sz)
@@ -392,8 +393,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net,
-                                              sobel=False, lamb=config.lamb_B)
+            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=False, lamb=config.lamb_B)
         is_best = cluster_eval(config, net,
                                mapping_assignment_dataloader=mapping_assignment_dataloader,
                                mapping_test_dataloader=mapping_test_dataloader,

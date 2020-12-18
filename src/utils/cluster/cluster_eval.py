@@ -230,8 +230,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
         return all_matches, all_accs
 
 
-def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb,
-                           compare=False):
+def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb, compare=False):
     net.eval()
 
     head = "B"  # main output head
@@ -262,10 +261,8 @@ def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb,
 
             actual_batch_start = d_i * curr_batch_sz
             actual_batch_end = actual_batch_start + curr_batch_sz
-            all_imgs[actual_batch_start:actual_batch_end, :, :, :] = \
-                imgs_curr.cuda()
-            all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = \
-                imgs_tf_curr.cuda()
+            all_imgs[actual_batch_start:actual_batch_end, :, :, :] = imgs_curr.cuda()
+            all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = imgs_tf_curr.cuda()
 
         curr_total_batch_sz = curr_batch_sz * config.num_dataloaders
         all_imgs = all_imgs[:curr_total_batch_sz, :, :, :]
@@ -280,8 +277,7 @@ def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb,
             x_tf_outs = net(all_imgs_tf, head=head)
 
         for i in xrange(config.num_sub_heads):
-            loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i],
-                                          lamb=lamb)
+            loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=lamb)
             loss_per_sub_head[i] += loss.item()
 
         if b_i % 100 == 0:

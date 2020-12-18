@@ -517,6 +517,12 @@ class HandwritingDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+    def get_classes(self):
+        return self.classes
+
+    def get_class_string_for_idx(self, idx):
+        return self.classes[idx]
+
     def __getitem__(self, idx):
         image_path = os.path.join(self.dataset_root, self.data[idx]["path"])
         image = Image.open(image_path)
@@ -556,6 +562,19 @@ def create_handwriting_clustering_dataloaders(config):
     dataset_head_B = HandwritingDataset(config.train_json_path, config.dataset_root, tf1)
     datasets_tf_head_B = [HandwritingDataset(config.train_json_path, config.dataset_root, tf2)
                           for _ in range(config.num_dataloaders)]
+    # TODO: remove
+    # to_pil = torchvision.transforms.ToPILImage(mode=None)
+    # for i in range(20):
+    #     img, cls = dataset_head_B[i]
+    #     pil_img = to_pil(img)
+    #     filename = os.path.join("tmp", str(i) + "_" + dataset_head_B.get_class_string_for_idx(cls) + ".png")
+    #     pil_img.save(filename)
+    #
+    #     img, cls = datasets_tf_head_B[0][i]
+    #     pil_img = to_pil(img)
+    #     filename = os.path.join("tmp", str(i) + "_tf_" + datasets_tf_head_B[0].get_class_string_for_idx(cls) + ".png")
+    #     pil_img.save(filename)
+
     dataloaders_head_B = [torch.utils.data.DataLoader(
         dataset_head_B,
         batch_size=config.dataloader_batch_sz,
