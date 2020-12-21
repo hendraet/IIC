@@ -113,14 +113,13 @@ def sobel_make_transforms(config, random_affine=False,
     tf2_list = []
     tf3_list = []
     if config.crop_orig:
+        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         tf1_list += [
-            torchvision.transforms.RandomCrop(tuple(np.array([config.rand_crop_sz,
-                                                              config.rand_crop_sz]))),
+            torchvision.transforms.RandomCrop(rand_crop_sz),
             torchvision.transforms.Resize(config.input_sz)
         ]
         tf3_list += [
-            torchvision.transforms.CenterCrop(tuple(np.array([config.rand_crop_sz,
-                                                              config.rand_crop_sz]))),
+            torchvision.transforms.CenterCrop(rand_crop_sz),
             torchvision.transforms.Resize(config.input_sz),
         ]
 
@@ -131,6 +130,7 @@ def sobel_make_transforms(config, random_affine=False,
     tf3_list.append(custom_greyscale_to_tensor(config.include_rgb))
 
     if config.fluid_warp:
+        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         # 50-50 do rotation or not
         print("adding rotation option for imgs_tf: %d" % config.rot_val)
         tf2_list += [torchvision.transforms.RandomApply(
@@ -138,14 +138,13 @@ def sobel_make_transforms(config, random_affine=False,
 
         imgs_tf_crops = []
         for crop_sz in config.rand_crop_szs_tf:
-            print("adding crop size option for imgs_tf: %d" % crop_sz)
-            imgs_tf_crops.append(torchvision.transforms.RandomCrop(crop_sz))
+            rand_crop_sz = [int(crop_sz * config.input_sz[0]), int(crop_sz * config.input_sz[1])]
+            print("adding crop size option for imgs_tf: %d, %d" % tuple(rand_crop_sz))
+            imgs_tf_crops.append(torchvision.transforms.RandomCrop(rand_crop_sz))
         tf2_list += [torchvision.transforms.RandomChoice(imgs_tf_crops)]
     else:
         # default
-        tf2_list += [
-            torchvision.transforms.RandomCrop(tuple(np.array([config.rand_crop_sz,
-                                                              config.rand_crop_sz])))]
+        tf2_list += [torchvision.transforms.RandomCrop(rand_crop_sz)]
 
     if random_affine:
         print("adding affine with p %f" % affine_p)
@@ -169,11 +168,15 @@ def sobel_make_transforms(config, random_affine=False,
                                                       cutout_max_box))
         # https://github.com/uoguelph-mlrg/Cutout/blob/master/images
         # /cutout_on_cifar10.jpg
+        min_box = [int(config.rand_crop_sz[0] * config.input_sz * 0.2),
+                   int(config.rand_crop_sz[1] * config.input_sz * 0.2)]
+        max_box = [int(config.rand_crop_sz[0] * config.input_sz * cutout_max_box),
+                   int(config.rand_crop_sz[1] * config.input_sz * cutout_max_box)]
         tf2_list.append(
             torchvision.transforms.RandomApply(
-                [custom_cutout(min_box=int(config.rand_crop_sz * 0.2),
-                               max_box=int(config.rand_crop_sz *
-                                           cutout_max_box))],
+                [
+                    custom_cutout(min_box=min_box, max_box=max_box)
+                ],
                 p=cutout_p)
         )
     else:

@@ -11,20 +11,22 @@ import matplotlib
 import numpy as np
 import torch
 
+from src.utils.cluster.render import save_progress
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
-from src.utils.cluster.data import create_handwriting_clustering_dataloaders
+from src.utils.cluster.transforms import sobel_process
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
+from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_clustering_dataloaders
 from src.utils.cluster.IID_losses import IID_loss
-from src.utils.cluster.render import save_progress
 
 """
-Fully unsupervised clustering ("IIC" = "IID").
-Train and test script (greyscale datasets).
-Network has two heads, for overclustering and final clustering.
+  Fully unsupervised clustering ("IIC" = "IID").
+  Train and test script (coloured datasets).
+  Network has two heads, for overclustering and final clustering.
 """
 
 
@@ -32,13 +34,12 @@ def parse_config():
     parser = argparse.ArgumentParser()
     parser.add_argument("model_ind", type=int)
     parser.add_argument("dataset_root", type=str)
-    parser.add_argument("train_json_path", type=str)
-    parser.add_argument("val_json_path", type=str)
-    parser.add_argument("test_json_path", type=str)
+    parser.add_argument("dataset", type=str)
 
-    parser.add_argument("--arch", type=str, default="ClusterNet4h", help="selects architecture of the models")
+    parser.add_argument("--arch", type=str, required=True, help="selects architecture of the models")
     parser.add_argument("--opt", type=str, default="Adam")
     parser.add_argument("--mode", type=str, default="IID")
+    parser.add_argument("--sobel", default=False, action="store_true")
 
     parser.add_argument("--gt_k", type=int, default=5, help="actual number of classes in the dataset")
     parser.add_argument("--output_k_A", type=int, required=True,
@@ -46,22 +47,23 @@ def parse_config():
     parser.add_argument("--output_k_B", type=int, required=True,
                         help="number of classes that head B should produce - can be used for overclustering")
 
-    parser.add_argument("--lamb_A", type=float, default=1.0)
-    parser.add_argument("--lamb_B", type=float, default=1.0)
+    parser.add_argument("--lamb", type=float, default=1.0)
 
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--lr_schedule", type=int, nargs="+", default=[])
     parser.add_argument("--lr_mult", type=float, default=0.1)
 
     parser.add_argument("--num_epochs", type=int, default=1000)
-    parser.add_argument("--batch_sz", type=int, default=240)  # num pairs
+    parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
     parser.add_argument("--num_dataloaders", type=int, default=3)
-    parser.add_argument("--num_sub_heads", type=int, default=5)
+    parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
 
     parser.add_argument("--out_root", type=str)
     parser.add_argument("--restart", dest="restart", default=False, action="store_true")
     parser.add_argument("--restart_from_best", dest="restart_from_best", default=False, action="store_true")
     parser.add_argument("--test_code", dest="test_code", default=False, action="store_true")
+
+    parser.add_argument("--stl_leave_out_unlabelled", default=False, action="store_true")
 
     parser.add_argument("--save_freq", type=int, default=20)
 
@@ -80,6 +82,9 @@ def parse_config():
     parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")
 
     # transforms
+    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true")
+    parser.add_argument("--include_rgb", dest="include_rgb", default=False, action="store_true")
+
     parser.add_argument("--demean", dest="demean", default=False, action="store_true")
     parser.add_argument("--per_img_demean", dest="per_img_demean", default=False, action="store_true")
     parser.add_argument("--data_mean", type=float, nargs="+", default=[0.5, 0.5, 0.5])
@@ -95,10 +100,18 @@ def parse_config():
     parser.add_argument("--tf3_crop_sz", type=int, default=0)
     parser.add_argument("--input_sz", type=int, nargs="+", default=[64, 216])
 
-    parser.add_argument("--rot_val", type=float, default=0.)
+    parser.add_argument("--fluid_warp", dest="fluid_warp", default=False, action="store_true")
+    parser.add_argument("--rand_crop_sz", type=int, default=0.9)
+    parser.add_argument("--rand_crop_szs_tf", type=int, nargs="+", default=[0.8, 0.9, 1.0])  # only used if fluid warp true
+    parser.add_argument("--rot_val", type=float, default=0.)  # only used if fluid warp true
+
     parser.add_argument("--always_rot", dest="always_rot", default=False, action="store_true")
     parser.add_argument("--no_jitter", dest="no_jitter", default=False, action="store_true")
     parser.add_argument("--no_flip", dest="no_flip", default=False, action="store_true")
+
+    parser.add_argument("--cutout", default=False, action="store_true")
+    parser.add_argument("--cutout_p", type=float, default=0.5)
+    parser.add_argument("--cutout_max_box", type=float, default=0.5)
 
     config = parser.parse_args()
     if len(config.input_sz) == 1:
@@ -111,7 +124,17 @@ def parse_config():
 
 def setup(config):
     config.twohead = True
-    config.in_channels = 1
+
+    if config.sobel:
+        if not config.include_rgb:
+            config.in_channels = 2
+        else:
+            config.in_channels = 5
+    else:
+        config.in_channels = 1
+        config.train_partitions = [True, False]
+        config.mapping_assignment_partitions = [True, False]
+        config.mapping_test_partitions = [True, False]
 
     config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     assert (config.batch_sz % config.num_dataloaders == 0)
@@ -126,10 +149,6 @@ def setup(config):
 
     if not os.path.exists(config.out_dir):
         os.makedirs(config.out_dir)
-
-    config.train_partitions = [True, False]
-    config.mapping_assignment_partitions = [True, False]
-    config.mapping_test_partitions = [True, False]
 
     if config.restart:
         config_name = "config.pickle"
@@ -148,6 +167,7 @@ def setup(config):
             config = pickle.load(config_f)
         assert (config.model_ind == given_config.model_ind)
         config.restart = True
+        config.restart_from_best = given_config.restart_from_best
 
         if given_config.dataset_root is not None:
             config.dataset_root = given_config.dataset_root
@@ -160,28 +180,36 @@ def setup(config):
         config.lr_schedule = given_config.lr_schedule
         config.save_progression = given_config.save_progression
 
+        if not hasattr(config, "cutout"):
+            config.cutout = False
+            config.cutout_p = 0.5
+            config.cutout_max_box = 0.5
+
         if not hasattr(config, "batchnorm_track"):
             config.batchnorm_track = True  # before we added in false option
 
-        if not hasattr(config, "lamb_A"):
-            config.lamb_A = config.lamb
-            config.lamb_B = config.lamb
-
     else:
         print("Config: %s" % config_to_str(config))
-        given_config = None
         net_name = None
         opt_name = None
 
-    return config, given_config, net_name, opt_name
+    if not hasattr(config, "lamb_A"):
+        config.lamb_A = config.lamb
+        config.lamb_B = config.lamb
+
+    return config, net_name, opt_name
 
 
-def train(config, given_config, net_name, opt_name, render_count=-1):
-    # TODO: enable semi-sup somehow
-    # TODO: tweak num_sub_heads?
-    # TODO: center crop ok or does it remove too much information if text is aligned left
-    dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader =\
-        create_handwriting_clustering_dataloaders(config)
+# TODO: enable semi-sup somehow
+# TODO: tweak num_sub_heads?
+# TODO: center crop ok or does it remove too much information if text is aligned left
+def train(config, net_name, opt_name, render_count=-1):
+    if config.dataset in ["5CHPT"]:
+        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
+            create_handwriting_clustering_dataloaders(config)
+    else:
+        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
+            cluster_twohead_create_dataloaders(config)
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
@@ -207,8 +235,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
     head_epochs["A"] = config.head_A_epochs
     head_epochs["B"] = config.head_B_epochs
 
-    # Results
-    # ----------------------------------------------------------------------
+    # Results ----------------------------------------------------------------------
 
     if config.restart:
         if not config.restart_from_best:
@@ -250,11 +277,11 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=False, lamb=config.lamb_B)
+            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=config.sobel, lamb=config.lamb)
         _ = cluster_eval(config, net,
                          mapping_assignment_dataloader=mapping_assignment_dataloader,
                          mapping_test_dataloader=mapping_test_dataloader,
-                         sobel=False,
+                         sobel=config.sobel,
                          use_sub_head=sub_head)
 
         print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
@@ -270,15 +297,14 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
         save_progression_count = 0
         save_progress(config, net, mapping_assignment_dataloader,
                       mapping_test_dataloader, save_progression_count,
-                      sobel=False,
+                      sobel=config.sobel,
                       render_count=render_count)
         save_progression_count += 1
 
-    # Train
-    # ------------------------------------------------------------------------
+    # Train ------------------------------------------------------------------------
 
     for e_i in xrange(next_epoch, config.num_epochs):
-        print("Starting e_i: %d" % e_i)
+        print("Starting e_i: %d" % (e_i))
 
         if e_i in config.lr_schedule:
             optimiser = update_lr(optimiser, lr_mult=config.lr_mult)
@@ -309,12 +335,14 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                 for tup in itertools.izip(*iterators):
                     net.module.zero_grad()
 
-                    all_imgs = torch.zeros((config.batch_sz, config.in_channels,
-                                            config.input_sz[0],
-                                            config.input_sz[1])).cuda()
-                    all_imgs_tf = torch.zeros((config.batch_sz, config.in_channels,
-                                               config.input_sz[0],
-                                               config.input_sz[1])).cuda()
+                    in_channels = config.in_channels
+                    if config.sobel:
+                        # one less because this is before sobel
+                        in_channels -= 1
+                    all_imgs = torch.zeros((config.batch_sz, in_channels,
+                                            config.input_sz[0], config.input_sz[1])).cuda()
+                    all_imgs_tf = torch.zeros((config.batch_sz, in_channels,
+                                               config.input_sz[0], config.input_sz[1])).cuda()
 
                     imgs_curr = tup[0][0]  # always the first
                     curr_batch_sz = imgs_curr.size(0)
@@ -334,10 +362,14 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                     all_imgs = all_imgs[:curr_total_batch_sz, :, :, :]
                     all_imgs_tf = all_imgs_tf[:curr_total_batch_sz, :, :, :]
 
-                    x_outs = net(all_imgs)
-                    x_tf_outs = net(all_imgs_tf)
+                    if config.sobel:
+                        all_imgs = sobel_process(all_imgs, config.include_rgb)
+                        all_imgs_tf = sobel_process(all_imgs_tf, config.include_rgb)
 
-                    avg_loss_batch = None  # avg over the heads
+                    x_outs = net(all_imgs, head=head)
+                    x_tf_outs = net(all_imgs_tf, head=head)
+
+                    avg_loss_batch = None  # avg over the sub_heads
                     avg_loss_no_lamb_batch = None
                     for i in xrange(config.num_sub_heads):
                         loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=lamb)
@@ -351,15 +383,15 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
                     avg_loss_batch /= config.num_sub_heads
                     avg_loss_no_lamb_batch /= config.num_sub_heads
 
-                    if ((b_i % 100) == 0) or (e_i == next_epoch):
-                        print("Model ind %d epoch %d head %s batch: %d avg loss %f avg loss no lamb %f time %s" % \
-                            (config.model_ind, e_i, head, b_i, avg_loss_batch.item(), avg_loss_no_lamb_batch.item(),
-                             datetime.now()))
+                    if ((b_i % 100) == 0) or (e_i == next_epoch and b_i < 10):
+                        print("Model ind %d epoch %d head %s head_i_epoch %d batch %d: avg loss %f avg loss no lamb %f "
+                              "time %s" % (config.model_ind, e_i, head, head_i_epoch, b_i, avg_loss_batch.item(),
+                                           avg_loss_no_lamb_batch.item(), datetime.now()))
                         sys.stdout.flush()
 
                     if not np.isfinite(avg_loss_batch.item()):
-                        print("Loss is not finite... %s:" % avg_loss_batch.item())
-                        exit(1)
+                        print("Loss is not finite... %s:" % str(avg_loss_batch))
+                        sys.exit(1)
 
                     avg_loss += avg_loss_batch.item()
                     avg_loss_no_lamb += avg_loss_no_lamb_batch.item()
@@ -385,17 +417,16 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
             epoch_loss.append(avg_loss)
             epoch_loss_no_lamb.append(avg_loss_no_lamb)
 
-        # Eval
-        # -----------------------------------------------------------------------
+        # Eval -----------------------------------------------------------------------
 
         # Can also pick the subhead using the evaluation process (to do this, set use_sub_head=None)
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=False, lamb=config.lamb_B)
+            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=config.sobel, lamb=config.lamb)
         is_best = cluster_eval(config, net,
                                mapping_assignment_dataloader=mapping_assignment_dataloader,
                                mapping_test_dataloader=mapping_test_dataloader,
-                               sobel=False,
+                               sobel=config.sobel,
                                use_sub_head=sub_head)
 
         print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
@@ -434,7 +465,7 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
             axarr[7].clear()
             axarr[7].plot(config.double_eval_avg_subhead_acc)
-            axarr[7].set_title("double eval acc (avg)), top: %f" % max(config.double_eval_avg_subhead_acc))
+            axarr[7].set_title("double eval acc (avg), top: %f" % max(config.double_eval_avg_subhead_acc))
 
         fig.tight_layout()
         fig.canvas.draw_idle()
@@ -473,8 +504,8 @@ def train(config, given_config, net_name, opt_name, render_count=-1):
 
 def main():
     config = parse_config()
-    config, given_config, net_name, opt_name = setup(config)
-    train(config, given_config, net_name, opt_name)
+    config, net_name, opt_name = setup(config)
+    train(config, net_name, opt_name)
 
 
 if __name__ == '__main__':

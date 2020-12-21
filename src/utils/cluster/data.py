@@ -508,7 +508,10 @@ def _cifar100_to_cifar20(target):
 
 class HandwritingDataset(Dataset):
     def __init__(self, json_file_path, dataset_root, transform=None):
-        with open(os.path.join(dataset_root, json_file_path), "r") as f:
+        full_json_file_path = os.path.join(dataset_root, json_file_path)
+        assert os.path.exists(full_json_file_path),\
+            "Path to dataset file has to be of the form [dataset]_[train|test|val].json"
+        with open(full_json_file_path, "r") as f:
             self.data = json.load(f)
         self.transform = transform
         self.dataset_root = dataset_root
@@ -557,10 +560,14 @@ def create_handwriting_clustering_dataloaders(config):
     else:
         tf1, tf2, tf3 = sobel_make_transforms(config)
 
+    train_json_path = config.dataset + "_train.json"
+    test_json_path = config.dataset + "_test.json"
+    val_json_path = config.dataset + "_val.json"
+
     # Training data:
     # main output head (B), auxiliary overclustering head (A), same data for both
-    dataset_head_B = HandwritingDataset(config.train_json_path, config.dataset_root, tf1)
-    datasets_tf_head_B = [HandwritingDataset(config.train_json_path, config.dataset_root, tf2)
+    dataset_head_B = HandwritingDataset(train_json_path, config.dataset_root, tf1)
+    datasets_tf_head_B = [HandwritingDataset(train_json_path, config.dataset_root, tf2)
                           for _ in range(config.num_dataloaders)]
     # TODO: remove
     # to_pil = torchvision.transforms.ToPILImage(mode=None)
@@ -590,8 +597,8 @@ def create_handwriting_clustering_dataloaders(config):
         num_workers=0,
         drop_last=False) for i in range(config.num_dataloaders)]
 
-    dataset_head_A = HandwritingDataset(config.train_json_path, config.dataset_root, tf1)
-    datasets_tf_head_A = [HandwritingDataset(config.train_json_path, config.dataset_root, tf2)
+    dataset_head_A = HandwritingDataset(train_json_path, config.dataset_root, tf1)
+    datasets_tf_head_A = [HandwritingDataset(train_json_path, config.dataset_root, tf2)
                           for _ in range(config.num_dataloaders)]
     dataloaders_head_A = [torch.utils.data.DataLoader(
         dataset_head_A,
@@ -609,23 +616,25 @@ def create_handwriting_clustering_dataloaders(config):
         drop_last=False) for i in range(config.num_dataloaders)]
 
     # Testing data (labelled):
-    mapping_assignment_dataset = HandwritingDataset(config.val_json_path, config.dataset_root, tf3)
+    mapping_assignment_dataset = HandwritingDataset(val_json_path, config.dataset_root, tf3)
     mapping_assignment_dataloader = torch.utils.data.DataLoader(
         mapping_assignment_dataset,
         batch_size=config.batch_sz,
         shuffle=False,
         sampler=DeterministicRandomSampler(mapping_assignment_dataset),
         num_workers=0,
-        drop_last=False)
+        drop_last=False
+    )
 
-    mapping_test_dataset = HandwritingDataset(config.test_json_path, config.dataset_root, tf3)
+    mapping_test_dataset = HandwritingDataset(test_json_path, config.dataset_root, tf3)
     mapping_test_dataloader = torch.utils.data.DataLoader(
         mapping_test_dataset,
         batch_size=config.batch_sz,
         shuffle=False,
         sampler=DeterministicRandomSampler(mapping_test_dataset),
         num_workers=0,
-        drop_last=False)
+        drop_last=False
+    )
 
     return dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader
 
