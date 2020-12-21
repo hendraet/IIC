@@ -50,8 +50,7 @@ class ClusterNet5gTwoHead(ResNet):
 
         self.head_A = ClusterNet5gTwoHeadHead(config, output_k=config.output_k_A)
 
-        semisup = (hasattr(config, "semisup") and
-                   config.semisup)
+        semisup = (hasattr(config, "semisup") and config.semisup)
         print("semisup: %s" % semisup)
 
         self.head_B = ClusterNet5gTwoHeadHead(config, output_k=config.output_k_B, semisup=semisup)

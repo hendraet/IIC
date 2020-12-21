@@ -20,7 +20,8 @@ import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
 from src.utils.cluster.transforms import sobel_process
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
-from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_clustering_dataloaders
+from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_dataloaders, \
+    cluster_create_dataloaders
 from src.utils.cluster.IID_losses import IID_loss
 
 """
@@ -38,13 +39,14 @@ def parse_config():
 
     parser.add_argument("--arch", type=str, required=True, help="selects architecture of the models")
     parser.add_argument("--opt", type=str, default="Adam")
-    parser.add_argument("--mode", type=str, default="IID")
+    parser.add_argument("--mode", type=str)
     parser.add_argument("--sobel", default=False, action="store_true")
 
     parser.add_argument("--gt_k", type=int, default=5, help="actual number of classes in the dataset")
-    parser.add_argument("--output_k_A", type=int, required=True,
+    parser.add_argument("--output_k", type=int)
+    parser.add_argument("--output_k_A", type=int,
                         help="number of classes that head A should produce - can be used for overclustering")
-    parser.add_argument("--output_k_B", type=int, required=True,
+    parser.add_argument("--output_k_B", type=int,
                         help="number of classes that head B should produce - can be used for overclustering")
 
     parser.add_argument("--lamb", type=float, default=1.0)
@@ -119,11 +121,34 @@ def parse_config():
     elif len(config.input_sz) > 2:
         config.input_sz = config.input_sz[:2]
 
+    assert not (config.output_k is None and config.output_k_A is None and config.output_k_B is None), \
+        "Either output_k or (output_k_A, output_k_B) have to be specified"
+    if config.output_k:
+        assert config.output_k_A is None and config.output_k_B is None,\
+            "Specify either output_k or (output_k_A, output_k_B)"
+        assert config.mode == "IID+", "if output_k is set, the mode has to be IID+"
+    else:
+        assert config.output_k is None, "Specify either output_k or (output_k_A, output_k_B)"
+        assert config.mode == "IID", "if output_k_a and output_k_b are set, the mode has to be IID"
+
     return config
 
 
 def setup(config):
-    config.twohead = True
+    if config.mode == "IID":
+        assert ("TwoHead" in config.arch)
+        assert (config.output_k_B == config.gt_k)
+        config.eval_mode = "hung"
+        config.twohead = True
+        config.output_k = config.output_k_B  # for eval code
+        assert (config.output_k_A >= config.gt_k)
+    elif config.mode == "IID+":
+        assert (config.output_k >= config.gt_k)
+        config.eval_mode = "orig"
+        config.twohead = False
+        config.double_eval = False
+    else:
+        raise NotImplementedError
 
     if config.sobel:
         if not config.include_rgb:
@@ -139,13 +164,6 @@ def setup(config):
     config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     assert (config.batch_sz % config.num_dataloaders == 0)
     config.dataloader_batch_sz = config.batch_sz / config.num_dataloaders
-
-    assert (config.mode == "IID")
-    assert ("TwoHead" in config.arch)
-    assert (config.output_k_B == config.gt_k)
-    config.output_k = config.output_k_B  # for eval code
-    assert (config.output_k_A >= config.gt_k)
-    config.eval_mode = "hung"
 
     if not os.path.exists(config.out_dir):
         os.makedirs(config.out_dir)
@@ -201,15 +219,26 @@ def setup(config):
 
 
 # TODO: enable semi-sup somehow
+#   - add preprocessing step to HW dataset that converts images to 3 channel imgs
 # TODO: tweak num_sub_heads?
 # TODO: center crop ok or does it remove too much information if text is aligned left
 def train(config, net_name, opt_name, render_count=-1):
     if config.dataset in ["5CHPT"]:
-        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
-            create_handwriting_clustering_dataloaders(config)
+        if config.mode == "IID":
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, twohead=True)
+        else:
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, twohead=False)
     else:
-        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
-            cluster_twohead_create_dataloaders(config)
+        if config.mode == "IID":
+            dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_twohead_create_dataloaders(config)
+        else:
+            dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_create_dataloaders(config)
+
+    assert False, "differnet numbers of dataloaders have to be implemented somehow"
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
