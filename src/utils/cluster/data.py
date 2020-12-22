@@ -20,7 +20,7 @@ from .general import reorder_train_deterministic
 
 def cluster_twohead_create_dataloaders(config):
     assert (config.mode == "IID")
-    assert (config.twohead)
+    assert config.twohead
 
     target_transform = None
 
@@ -577,9 +577,9 @@ def create_handwriting_dataloaders(config, twohead=False):
     else:
         tf1, tf2, tf3 = greyscale_make_transforms(config)
 
-    train_json_path = config.dataset + "_train.json"
-    test_json_path = config.dataset + "_test.json"
-    val_json_path = config.dataset + "_val.json"
+    train_json_path = os.path.join(config.dataset, config.dataset + "_train.json")
+    test_json_path = os.path.join(config.dataset, config.dataset + "_test.json")
+    val_json_path = os.path.join(config.dataset, config.dataset + "_val.json")
 
     # Training data:
     dataloader_list = [_create_hw_dataloaders(config, train_json_path, tf1, tf2)]

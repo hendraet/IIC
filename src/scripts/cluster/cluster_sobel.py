@@ -30,6 +30,7 @@ from src.utils.cluster.cluster_eval import cluster_eval
 """
 
 # Options ----------------------------------------------------------------------
+assert False, "This code is deprecated. Use cluster.py instead"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_ind", type=int, required=True)
@@ -135,16 +136,14 @@ dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
 net = archs.__dict__[config.arch](config)
 if config.restart:
     model_path = os.path.join(config.out_dir, net_name)
-    net.load_state_dict(
-        torch.load(model_path, map_location=lambda storage, loc: storage))
+    net.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: storage))
 net.cuda()
 net = torch.nn.DataParallel(net)
 net.train()
 
 optimiser = get_opt(config.opt)(net.module.parameters(), lr=config.lr)
 if config.restart:
-    optimiser.load_state_dict(
-        torch.load(os.path.join(config.out_dir, opt_name)))
+    optimiser.load_state_dict(torch.load(os.path.join(config.out_dir, opt_name)))
 
 # Results ----------------------------------------------------------------------
 
@@ -215,10 +214,8 @@ for e_i in xrange(next_epoch, config.num_epochs):
 
             actual_batch_start = d_i * curr_batch_sz
             actual_batch_end = actual_batch_start + curr_batch_sz
-            all_imgs[actual_batch_start:actual_batch_end, :, :, :] = \
-                imgs_curr.cuda()
-            all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = \
-                imgs_tf_curr.cuda()
+            all_imgs[actual_batch_start:actual_batch_end, :, :, :] = imgs_curr.cuda()
+            all_imgs_tf[actual_batch_start:actual_batch_end, :, :, :] = imgs_tf_curr.cuda()
 
         if not (curr_batch_sz == config.dataloader_batch_sz):
             print("last batch sz %d" % curr_batch_sz)
@@ -263,20 +260,19 @@ for e_i in xrange(next_epoch, config.num_epochs):
         avg_loss_count += 1
 
         avg_loss_batch.backward()
-
         optimiser.step()
 
         b_i += 1
         if b_i == 2 and config.test_code:
             break
 
-    # Eval -----------------------------------------------------------------------
-
     avg_loss = float(avg_loss / avg_loss_count)
     avg_loss_no_lamb = float(avg_loss_no_lamb / avg_loss_count)
 
     config.epoch_loss.append(avg_loss)
     config.epoch_loss_no_lamb.append(avg_loss_no_lamb)
+
+    # Eval -----------------------------------------------------------------------
 
     is_best = cluster_eval(config, net,
                            mapping_assignment_dataloader=mapping_assignment_dataloader,

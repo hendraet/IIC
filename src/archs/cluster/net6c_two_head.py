@@ -66,42 +66,35 @@ class ClusterNet6cTwoHead(VGGNet):
 
     def __init__(self, config):
         super(ClusterNet6cTwoHead, self).__init__()
+        assert len(config.output_ks) == 2
 
         self.batchnorm_track = config.batchnorm_track
-
         self.trunk = ClusterNet6cTrunk(config)
-
-        self.head_A = ClusterNet6cTwoHeadHead(config, output_k=config.output_k_A)
+        self.head_A = ClusterNet6cTwoHeadHead(config, output_k=config.output_ks[0])
 
         semisup = (hasattr(config, "semisup") and config.semisup)
         print("semisup: %s" % semisup)
 
-        self.head_B = ClusterNet6cTwoHeadHead(config, output_k=config.output_k_B,
-                                              semisup=semisup)
-
+        self.head_B = ClusterNet6cTwoHeadHead(config, output_k=config.output_ks[1], semisup=semisup)
         self._initialize_weights()
 
-    def forward(self, x, head="B", kmeans_use_features=False,
-                trunk_features=False,
-                penultimate_features=False):
+    def forward(self, x, head_idx=1, kmeans_use_features=False, trunk_features=False, penultimate_features=False):
         if penultimate_features:
             print("Not needed/implemented for this arch")
             exit(1)
 
-        # default is "B" for use by eval code
-        # training script switches between A and B
-
+        # default is index 1 (for head B) for use by eval code
+        # training script switches between A (index 0) and B
         x = self.trunk(x)
-
         if trunk_features:  # for semisup
             return x
 
         # returns list or single
-        if head == "A":
+        if head_idx == 0:
             x = self.head_A(x, kmeans_use_features=kmeans_use_features)
-        elif head == "B":
+        elif head_idx == 1:
             x = self.head_B(x, kmeans_use_features=kmeans_use_features)
         else:
-            assert (False)
+            assert False, "Index too high for TwoHead architecture"
 
         return x

@@ -28,6 +28,7 @@ from src.utils.cluster.IID_losses import IID_loss
 """
 
 # Options ----------------------------------------------------------------------
+assert False, "This code is deprecated. Use cluster.py instead"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_ind", type=int, required=True)
@@ -250,7 +251,6 @@ else:
     next_epoch = 1
 
 fig, axarr = plt.subplots(6 + 2 * int(config.double_eval), sharex=False, figsize=(20, 20))
-#TODO: save prgression
 
 # Train ------------------------------------------------------------------------
 
@@ -266,12 +266,10 @@ for e_i in xrange(next_epoch, config.num_epochs):
             dataloaders = dataloaders_head_A
             epoch_loss = config.epoch_loss_head_A
             epoch_loss_no_lamb = config.epoch_loss_no_lamb_head_A
-            # TODO: lamb
         elif head == "B":
             dataloaders = dataloaders_head_B
             epoch_loss = config.epoch_loss_head_B
             epoch_loss_no_lamb = config.epoch_loss_no_lamb_head_B
-            # TODO: lamb
 
         avg_loss = 0.  # over heads and head_epochs (and sub_heads)
         avg_loss_no_lamb = 0.
@@ -288,10 +286,10 @@ for e_i in xrange(next_epoch, config.num_epochs):
 
                 # one less because this is before sobel
                 all_imgs = torch.zeros(config.batch_sz, config.in_channels - 1,
-                                       config.input_sz,  # TODO: adapt to non-square
+                                       config.input_sz,
                                        config.input_sz).cuda()
                 all_imgs_tf = torch.zeros(config.batch_sz, config.in_channels - 1,
-                                          config.input_sz,  # TODO: adapt to non-square
+                                          config.input_sz,
                                           config.input_sz).cuda()
 
                 imgs_curr = tup[0][0]  # always the first
@@ -312,8 +310,8 @@ for e_i in xrange(next_epoch, config.num_epochs):
                 all_imgs = all_imgs[:curr_total_batch_sz, :, :, :]
                 all_imgs_tf = all_imgs_tf[:curr_total_batch_sz, :, :, :]
 
-                all_imgs = sobel_process(all_imgs, config.include_rgb)  # TODO: not present in grey
-                all_imgs_tf = sobel_process(all_imgs_tf, config.include_rgb)  # TODO: not present in grey
+                all_imgs = sobel_process(all_imgs, config.include_rgb)
+                all_imgs_tf = sobel_process(all_imgs_tf, config.include_rgb)
 
                 x_outs = net(all_imgs, head=head)
                 x_tf_outs = net(all_imgs_tf, head=head)
@@ -334,7 +332,7 @@ for e_i in xrange(next_epoch, config.num_epochs):
 
                 if ((b_i % 100) == 0) or (e_i == next_epoch and b_i < 10):
                     print("Model ind %d epoch %d head %s head_i_epoch %d batch %d: avg loss %f avg loss no lamb %f time %s" % \
-                          (config.model_ind, e_i, head, head_i_epoch, b_i, avg_loss_batch.item(), # TODO: differs slightly
+                          (config.model_ind, e_i, head, head_i_epoch, b_i, avg_loss_batch.item(),
                            avg_loss_no_lamb_batch.item(), datetime.now()))
                     sys.stdout.flush()
 
@@ -348,8 +346,6 @@ for e_i in xrange(next_epoch, config.num_epochs):
 
                 avg_loss_batch.backward()
                 optimiser.step()
-
-                # TODO: save progression missing again
 
                 b_i += 1
                 if b_i == 2 and config.test_code:

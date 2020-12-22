@@ -12,8 +12,7 @@ from .eval_metrics import _hungarian_match, _original_match, _acc
 from .transforms import sobel_process
 
 
-def _clustering_get_data(config, net, dataloader, sobel=False,
-                         using_IR=False, get_soft=False, verbose=0):
+def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, get_soft=False, verbose=None):
     """
   Returns cuda tensors for flat preds and targets.
   """
@@ -21,11 +20,10 @@ def _clustering_get_data(config, net, dataloader, sobel=False,
     assert (not using_IR)  # sanity; IR used by segmentation only
 
     num_batches = len(dataloader)
-    flat_targets_all = torch.zeros((num_batches * config.batch_sz),
-                                   dtype=torch.int32).cuda()
-    flat_predss_all = [torch.zeros((num_batches * config.batch_sz),
-                                   dtype=torch.int32).cuda() for _ in
-                       xrange(config.num_sub_heads)]
+    flat_targets_all = torch.zeros((num_batches * config.batch_sz), dtype=torch.int32).cuda()
+    flat_predss_all = [
+        torch.zeros((num_batches * config.batch_sz), dtype=torch.int32).cuda() for _ in xrange(config.num_sub_heads)
+    ]
 
     if get_soft:
         soft_predss_all = [
@@ -62,8 +60,7 @@ def _clustering_get_data(config, net, dataloader, sobel=False,
 
         flat_targets_all[start_i:(start_i + num_test_curr)] = flat_targets.cuda()
 
-    flat_predss_all = [flat_predss_all[i][:num_test] for i in
-                       xrange(config.num_sub_heads)]
+    flat_predss_all = [flat_predss_all[i][:num_test] for i in xrange(config.num_sub_heads)]
     flat_targets_all = flat_targets_all[:num_test]
 
     if not get_soft:
@@ -158,9 +155,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
         sys.stdout.flush()
 
     flat_predss_all, flat_targets_all = \
-        get_data_fn(config, net, mapping_assignment_dataloader, sobel=sobel,
-                    using_IR=using_IR,
-                    verbose=verbose)
+        get_data_fn(config, net, mapping_assignment_dataloader, sobel=sobel, using_IR=using_IR, verbose=verbose)
 
     if verbose:
         print("getting data fn has completed %s" % datetime.now())
@@ -183,8 +178,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
 
     for i in xrange(config.num_sub_heads):
         if verbose:
-            print("starting head %d with eval mode %s, %s" % (i, config.eval_mode,
-                                                              datetime.now()))
+            print("starting head %d with eval mode %s, %s" % (i, config.eval_mode, datetime.now()))
             sys.stdout.flush()
 
         if config.eval_mode == "hung":
@@ -207,8 +201,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
         if not just_matches:
             # reorder predictions to be same cluster assignments as gt_k
             found = torch.zeros(config.output_k)
-            reordered_preds = torch.zeros(num_samples,
-                                          dtype=flat_predss_all[0].dtype).cuda()
+            reordered_preds = torch.zeros(num_samples, dtype=flat_predss_all[0].dtype).cuda()
 
             for pred_i, target_i in match:
                 reordered_preds[flat_predss_all[i] == pred_i] = target_i
@@ -246,12 +239,8 @@ def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb, compare
         if sobel:
             dim -= 1
 
-        all_imgs = torch.zeros(config.batch_sz, dim,
-                               config.input_sz,
-                               config.input_sz).cuda()
-        all_imgs_tf = torch.zeros(config.batch_sz, dim,
-                                  config.input_sz,
-                                  config.input_sz).cuda()
+        all_imgs = torch.zeros(config.batch_sz, dim, config.input_sz[0], config.input_sz[1]).cuda()
+        all_imgs_tf = torch.zeros(config.batch_sz, dim, config.input_sz[0], config.input_sz[1]).cuda()
 
         imgs_curr = tup[0][0]  # always the first
         curr_batch_sz = imgs_curr.size(0)
