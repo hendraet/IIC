@@ -80,28 +80,23 @@ def cluster_twohead_create_dataloaders(config):
     print("Making datasets with %s and %s" % (dataset_class, target_transform))
     sys.stdout.flush()
 
-    dataloaders_head_A = \
-        _create_dataloaders(config, dataset_class, tf1, tf2,
-                            partitions=config.train_partitions_head_A,
-                            target_transform=target_transform)
+    dataloaders_head_A = _create_dataloaders(config, dataset_class, tf1, tf2,
+                                             partitions=config.train_partitions_head_A,
+                                             target_transform=target_transform)
 
-    dataloaders_head_B = \
-        _create_dataloaders(config, dataset_class, tf1, tf2,
-                            partitions=config.train_partitions_head_B,
-                            target_transform=target_transform)
+    dataloaders_head_B = _create_dataloaders(config, dataset_class, tf1, tf2,
+                                             partitions=config.train_partitions_head_B,
+                                             target_transform=target_transform)
 
-    mapping_assignment_dataloader = \
-        _create_mapping_loader(config, dataset_class, tf3,
-                               partitions=config.mapping_assignment_partitions,
-                               target_transform=target_transform)
+    mapping_assignment_dataloader = _create_mapping_loader(config, dataset_class, tf3,
+                                                           partitions=config.mapping_assignment_partitions,
+                                                           target_transform=target_transform)
 
-    mapping_test_dataloader = \
-        _create_mapping_loader(config, dataset_class, tf3,
-                               partitions=config.mapping_test_partitions,
-                               target_transform=target_transform)
+    mapping_test_dataloader = _create_mapping_loader(config, dataset_class, tf3,
+                                                     partitions=config.mapping_test_partitions,
+                                                     target_transform=target_transform)
 
-    return dataloaders_head_A, dataloaders_head_B, \
-           mapping_assignment_dataloader, mapping_test_dataloader
+    return dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader
 
 
 # Used by sobel and greyscale clustering single head scripts -------------------
@@ -531,10 +526,10 @@ class HandwritingDataset(Dataset):
         return image, target_class_idx
 
 
-def _create_hw_dataloaders(config, dataset_path, tf1, tf2):
-    dataset = HandwritingDataset(dataset_path, config.dataset_root, tf1)
+def _create_hw_dataloaders(config, dataset_description_path, dataset_root, tf1, tf2):
+    dataset = HandwritingDataset(dataset_description_path, dataset_root, tf1)
     datasets_tf = [
-        HandwritingDataset(dataset_path, config.dataset_root, tf2) for _ in range(config.num_dataloaders)
+        HandwritingDataset(dataset_description_path, dataset_root, tf2) for _ in range(config.num_dataloaders)
     ]
 
     dataloaders = [torch.utils.data.DataLoader(
@@ -555,8 +550,8 @@ def _create_hw_dataloaders(config, dataset_path, tf1, tf2):
     return dataloaders
 
 
-def _create_hw_mapping_loader(config, dataset_path, tf):
-    mapping_dataset = HandwritingDataset(dataset_path, config.dataset_root, tf)
+def _create_hw_mapping_loader(config, dataset_description_path, dataset_root, tf):
+    mapping_dataset = HandwritingDataset(dataset_description_path, dataset_root, tf)
     mapping_dataloader = torch.utils.data.DataLoader(
         mapping_dataset,
         batch_size=config.batch_sz,
@@ -577,18 +572,19 @@ def create_handwriting_dataloaders(config, twohead=False):
     else:
         tf1, tf2, tf3 = greyscale_make_transforms(config)
 
-    train_json_path = os.path.join(config.dataset, config.dataset + "_train.json")
-    test_json_path = os.path.join(config.dataset, config.dataset + "_test.json")
-    val_json_path = os.path.join(config.dataset, config.dataset + "_val.json")
+    train_json_path = config.dataset + "_train.json"
+    test_json_path = config.dataset + "_test.json"
+    val_json_path = config.dataset + "_val.json"
+    actual_dataset_root = os.path.join(config.dataset_root, config.dataset)
 
     # Training data:
-    dataloader_list = [_create_hw_dataloaders(config, train_json_path, tf1, tf2)]
+    dataloader_list = [_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2)]
     if twohead:
-        dataloader_list.append(_create_hw_dataloaders(config, train_json_path, tf1, tf2))
+        dataloader_list.append(_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2))
 
     # Testing data (labelled):
-    mapping_assignment_dataloader = _create_hw_mapping_loader(config, val_json_path, tf3)
-    mapping_test_dataloader = _create_hw_mapping_loader(config, test_json_path, tf3)
+    mapping_assignment_dataloader = _create_hw_mapping_loader(config, val_json_path, actual_dataset_root, tf3)
+    mapping_test_dataloader = _create_hw_mapping_loader(config, test_json_path, actual_dataset_root, tf3)
 
     return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
 

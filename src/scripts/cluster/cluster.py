@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from src.utils.cluster.render import save_progress
+from src.utils.utils import get_std_arg_parser
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -32,12 +33,9 @@ from src.utils.cluster.IID_losses import IID_loss
 
 
 def parse_config():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("model_ind", type=int)
-    parser.add_argument("dataset_root", type=str)
+    parser = get_std_arg_parser()
+    parser.add_argument("dataset_root", type=str, help="dir where the dataset dir is located")
     parser.add_argument("dataset", type=str)
-
-    parser.add_argument("--arch", type=str, required=True, help="selects architecture of the models")
     parser.add_argument("--opt", type=str, default="Adam")
     parser.add_argument("--mode", type=str)
     parser.add_argument("--sobel", default=False, action="store_true")
@@ -48,17 +46,10 @@ def parse_config():
 
     parser.add_argument("--lamb", type=float, default=1.0)
 
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--lr_schedule", type=int, nargs="+", default=[])
-    parser.add_argument("--lr_mult", type=float, default=0.1)
-
-    parser.add_argument("--num_epochs", type=int, default=1000)
     parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
     parser.add_argument("--num_dataloaders", type=int, default=3)
     parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
 
-    parser.add_argument("--out_root", type=str)
-    parser.add_argument("--restart", dest="restart", default=False, action="store_true")
     parser.add_argument("--restart_from_best", dest="restart_from_best", default=False, action="store_true")
     parser.add_argument("--test_code", dest="test_code", default=False, action="store_true")
 
@@ -98,7 +89,8 @@ def parse_config():
 
     parser.add_argument("--fluid_warp", dest="fluid_warp", default=False, action="store_true")
     parser.add_argument("--rand_crop_sz", type=float, default=0.9)
-    parser.add_argument("--rand_crop_szs_tf", type=float, nargs="+", default=[0.8, 0.9, 1.0])  # only used if fluid warp true
+    parser.add_argument("--rand_crop_szs_tf", type=float, nargs="+",
+                        default=[0.8, 0.9, 1.0])  # only used if fluid warp true
     parser.add_argument("--rot_val", type=float, default=0.)  # only used if fluid warp true
 
     parser.add_argument("--always_rot", dest="always_rot", default=False, action="store_true")
@@ -119,6 +111,9 @@ def parse_config():
 
 
 def setup(config):
+    if config.dataset == "5CHPT":  # TODO: remove if tested
+        assert config.sobel == False, "Sobel is not tested for this dataset yet"
+
     if config.mode == "IID":
         assert ("TwoHead" in config.arch)
         # Exactly one config has to match the groundtruth k and all ks have to be bigger than gt_k
@@ -225,6 +220,7 @@ def get_dataloader_list(config):
             dataloader_list = [dataloaders]
     else:
         raise NotImplementedError
+
     return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
 
 
