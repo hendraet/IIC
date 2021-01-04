@@ -29,7 +29,6 @@ from src.utils.cluster.IID_losses import IID_loss
 
 # Options ----------------------------------------------------------------------
 assert False, "This code is deprecated. Use cluster.py instead"
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_ind", type=int, required=True)
 parser.add_argument("--arch", type=str, required=True)
@@ -53,8 +52,7 @@ parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
 parser.add_argument("--num_dataloaders", type=int, default=3)
 parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
 
-parser.add_argument("--out_root", type=str,
-                    default="/scratch/shared/slow/xuji/iid_private")
+parser.add_argument("--out_root", type=str)
 parser.add_argument("--restart", dest="restart", default=False,
                     action="store_true")
 parser.add_argument("--restart_from_best", dest="restart_from_best",
@@ -93,7 +91,7 @@ parser.add_argument("--data_std", type=float, nargs="+", default=[])
 
 parser.add_argument("--crop_orig", dest="crop_orig", default=False,
                     action="store_true")
-parser.add_argument("--rand_crop_sz", type=int, default=84)
+parser.add_argument("--rand_crop_sz", type=float, default=0.9)
 parser.add_argument("--input_sz", type=int, default=96)
 
 parser.add_argument("--fluid_warp", dest="fluid_warp", default=False,
@@ -108,6 +106,7 @@ parser.add_argument("--cutout_p", type=float, default=0.5)
 parser.add_argument("--cutout_max_box", type=float, default=0.5)
 
 config = parser.parse_args()
+config.input_sz = [config.input_sz, config.input_sz]
 
 # Setup ------------------------------------------------------------------------
 
