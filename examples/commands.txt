@@ -16,6 +16,30 @@ Note there are two settings that can be used to evaluate models (selecting sub-h
 
   STL10 (569)
   export CUDA_VISIBLE_DEVICES=0 && nohup python -m code.scripts.cluster.cluster_sobel_twohead --model_ind 569 --arch ClusterNet5gTwoHead --mode IID --dataset STL10 --dataset_root /scratch/local/ssd/xuji/STL --gt_k 10 --output_k_A 70 --output_k_B 10 --lamb 1.0 --lr 0.0001  --num_epochs 2000 --batch_sz 700 --num_dataloaders 5 --num_sub_heads 5 --mix_train --crop_orig --rand_crop_sz 64 --input_sz 64 --head_A_first --double_eval --batchnorm_track > out/gnodee2_0_m569.out &
+  export CUDA_VISIBLE_DEVICES=0 &&
+  nohup python -m code.scripts.cluster.cluster_sobel_twohead
+      --model_ind 569
+      --arch ClusterNet5gTwoHead
+      --mode IID
+      --dataset STL10
+      --dataset_root /scratch/local/ssd/xuji/STL
+      --gt_k 10
+      --output_k_A 70
+      --output_k_B 10
+      --lamb 1.0
+      --lr 0.0001
+      --num_epochs 2000
+      --batch_sz 700
+      --num_dataloaders 5
+      --num_sub_heads 5
+      --mix_train
+      --crop_orig
+      --rand_crop_sz 64
+      --input_sz 64
+      --head_A_first
+      --double_eval
+      --batchnorm_track
+      > out/gnodee2_0_m569.out &
 
   or (570):
   export CUDA_VISIBLE_DEVICES=0 && nohup python -m code.scripts.cluster.cluster_sobel_twohead --model_ind 570  --arch ClusterNet5gTwoHead --mode IID --dataset STL10 --dataset_root /scratch/local/ssd/xuji/STL --gt_k 10 --output_k_A 70 --output_k_B 10 --lamb 1.0 --lr 0.0001  --num_epochs 2000 --batch_sz 700 --num_dataloaders 5 --num_sub_heads 5 --mix_train --crop_orig --rand_crop_sz 64 --input_sz 64 --head_B_epochs 2 --double_eval --batchnorm_track > out/gnodee3_0_m570.out &
@@ -47,9 +71,44 @@ Note there are two settings that can be used to evaluate models (selecting sub-h
 
   Semi-sup overclustering features (650)
   export CUDA_VISIBLE_DEVICES=2 && nohup python -m code.scripts.cluster.cluster_sobel --dataset STL10 --dataset_root /scratch/local/ssd/xuji/STL --model_ind 650 --arch ClusterNet5g --num_epochs 3200 --output_k 70 --gt_k 10 --lr 0.0001 --lamb 1.0 --num_sub_heads 5 --batch_sz 700 --num_dataloaders 5 --mix_train --crop_orig --rand_crop_sz 64 --input_sz 64 --mode IID+ --batchnorm_track > out/gnoded2_gpu2_m650_r2.out &
+  export CUDA_VISIBLE_DEVICES=2 &&
+  nohup python -m code.scripts.cluster.cluster_sobel
+      --dataset STL10
+      --dataset_root /scratch/local/ssd/xuji/STL
+      --model_ind 650
+      --arch ClusterNet5g
+      --num_epochs 3200
+      --output_k 70
+      --gt_k 10
+      --lr 0.0001
+      --lamb 1.0
+      --num_sub_heads 5
+      --batch_sz 700
+      --num_dataloaders 5
+      --mix_train
+      --crop_orig
+      --rand_crop_sz 64
+      --input_sz 64
+      --mode IID+
+      --batchnorm_track
+      > out/gnoded2_gpu2_m650_r2.out &
 
   Finetuning (698)
-  export CUDA_VISIBLE_DEVICES=2 && nohup python -m code.scripts.semisup.IID_semisup_STL10  --model_ind 698 --old_model_ind 650 --head_lr 0.001 --trunk_lr 0.0001 --arch SupHead5 --penultimate_features --random_affine --affine_p 0.5 --cutout --cutout_p 0.5 --cutout_max_box 0.7 --num_epochs 8000 > out/gnodee4_gpu2_m698_r2.out &
+  export CUDA_VISIBLE_DEVICES=2 &&
+  nohup python -m code.scripts.semisup.IID_semisup_STL10
+      --model_ind 698
+      --old_model_ind 650
+      --head_lr 0.001
+      --trunk_lr 0.0001
+      --arch SupHead5
+      --penultimate_features
+      --random_affine
+      --affine_p 0.5
+      --cutout
+      --cutout_p 0.5
+      --cutout_max_box 0.7
+      --num_epochs 8000
+      > out/gnodee4_gpu2_m698_r2.out &
 
 1.4 IIC ablation - table 2
 
