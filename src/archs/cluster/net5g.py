@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from residual import BasicBlock, ResNet, ResNetTrunk
@@ -26,11 +27,14 @@ class ClusterNet5gTrunk(ResNetTrunk):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        if config.input_sz[0] == 96:
+
+        # asserts that pooling kernel is not too big
+        smaller_dim_index = 0 if config.input_sz[0] < config.input_sz[1] else 1
+        if config.input_sz[smaller_dim_index] == 96:
             avg_pool_sz = 7
-        elif config.input_sz[0] == 64:
+        elif config.input_sz[smaller_dim_index] == 64:
             avg_pool_sz = 5
-        elif config.input_sz[0] == 32:
+        elif config.input_sz[smaller_dim_index] == 32:
             avg_pool_sz = 3
         else:
             raise NotImplementedError
@@ -59,7 +63,7 @@ class ClusterNet5gTrunk(ResNetTrunk):
 
 
 class ClusterNet5gHead(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, num_features):
         super(ClusterNet5gHead, self).__init__()
 
         assert len(config.output_ks) == 1
@@ -67,7 +71,7 @@ class ClusterNet5gHead(nn.Module):
         self.batchnorm_track = config.batchnorm_track
         self.num_sub_heads = config.num_sub_heads
         self.heads = nn.ModuleList([nn.Sequential(
-            nn.Linear(512 * BasicBlock.expansion, config.output_ks[0]),
+            nn.Linear(num_features, config.output_ks[0]),
             nn.Softmax(dim=1)) for _ in xrange(self.num_sub_heads)
         ])
 
@@ -89,7 +93,15 @@ class ClusterNet5g(ResNet):
         self.batchnorm_track = config.batchnorm_track
 
         self.trunk = ClusterNet5gTrunk(config)
-        self.head = ClusterNet5gHead(config)
+
+        # uses dummy forward pass to dynamically calculate the size of the resulting trunk features
+        self.trunk.eval()
+        dummy_img = torch.zeros([1, config.in_channels, config.input_sz[0], config.input_sz[1]])
+        out_features = self.trunk(dummy_img)
+        self.trunk.train()
+        assert len(out_features.shape) == 2
+
+        self.head = ClusterNet5gHead(config, num_features=out_features.shape[1])
 
         self._initialize_weights()
 

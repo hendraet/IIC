@@ -64,12 +64,14 @@ def parse_config():
     parser.add_argument("--reverse_heads", default=False, action="store_true")
     parser.add_argument("--head_epochs", type=int, nargs="+", default=[1])
 
-    parser.add_argument("--batchnorm_track", default=False, action="store_true")
+    parser.add_argument("--batchnorm_track", default=False, action="store_true",
+                        help="tracks batchnorm running stats")
     parser.add_argument("--save_progression", default=False, action="store_true")
     parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")  # TODO?
 
     # transforms
-    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true")
+    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true", 
+                        help="argument for STL10 dataset where unlabelled data is added to the train set")
     parser.add_argument("--include_rgb", dest="include_rgb", default=False, action="store_true")
 
     parser.add_argument("--demean", dest="demean", default=False, action="store_true")
@@ -111,9 +113,6 @@ def parse_config():
 
 
 def setup(config):
-    if config.dataset == "5CHPT":  # TODO: remove if tested
-        assert config.sobel == False, "Sobel is not tested for this dataset yet"
-
     if config.mode == "IID":
         assert ("TwoHead" in config.arch)
         # Exactly one config has to match the groundtruth k and all ks have to be bigger than gt_k

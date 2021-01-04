@@ -118,14 +118,11 @@ def sobel_make_transforms(config, random_affine=False, cutout=False, cutout_p=No
             torchvision.transforms.Resize(config.input_sz),
         ]
 
-    print(
-        "(_sobel_multioutput_make_transforms) config.include_rgb: %s" %
-        config.include_rgb)
+    print("(_sobel_multioutput_make_transforms) config.include_rgb: %s" % config.include_rgb)
     tf1_list.append(custom_greyscale_to_tensor(config.include_rgb))
     tf3_list.append(custom_greyscale_to_tensor(config.include_rgb))
 
     if config.fluid_warp:
-        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         # 50-50 do rotation or not
         print("adding rotation option for imgs_tf: %d" % config.rot_val)
         tf2_list += [torchvision.transforms.RandomApply(
@@ -139,6 +136,7 @@ def sobel_make_transforms(config, random_affine=False, cutout=False, cutout_p=No
         tf2_list += [torchvision.transforms.RandomChoice(imgs_tf_crops)]
     else:
         # default
+        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         tf2_list += [torchvision.transforms.RandomCrop(rand_crop_sz)]
 
     if random_affine:

@@ -75,7 +75,7 @@ def cluster_twohead_create_dataloaders(config):
         tf1, tf2, tf3 = greyscale_make_transforms(config)
 
     else:
-        assert (False)
+        assert False
 
     print("Making datasets with %s and %s" % (dataset_class, target_transform))
     sys.stdout.flush()
