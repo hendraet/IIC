@@ -30,13 +30,14 @@ def custom_cutout(min_box=None, max_box=None):
         w, h = img.size
 
         # find left, upper, right, lower
-        box_sz = np.random.randint(min_box, max_box + 1)
-        half_box_sz = int(np.floor(box_sz / 2.))
-        x_c = np.random.randint(half_box_sz, w - half_box_sz)
-        y_c = np.random.randint(half_box_sz, h - half_box_sz)
-        box = (
-            x_c - half_box_sz, y_c - half_box_sz, x_c + half_box_sz,
-            y_c + half_box_sz)
+        box_sz = np.asarray([np.random.randint(min_box[0], max_box[0] + 1),
+                             np.random.randint(min_box[1], max_box[1] + 1)])
+        half_box_sz = box_sz // 2
+        # Attention: input size i.e the size of min_ and max_box, is given in the format h x w and not w x h like in the
+        # pillow library
+        x_c = np.random.randint(half_box_sz[1], w - half_box_sz[1])
+        y_c = np.random.randint(half_box_sz[0], h - half_box_sz[0])
+        box = (x_c - half_box_sz[1], y_c - half_box_sz[0], x_c + half_box_sz[1], y_c + half_box_sz[0])
 
         img.paste(0, box=box)
         return img
@@ -68,14 +69,12 @@ def sobel_process(imgs, include_rgb, using_IR=False):
 
     sobel1 = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
     conv1 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
-    conv1.weight = nn.Parameter(
-        torch.Tensor(sobel1).cuda().float().unsqueeze(0).unsqueeze(0))
+    conv1.weight = nn.Parameter(torch.Tensor(sobel1).cuda().float().unsqueeze(0).unsqueeze(0))
     dx = conv1(Variable(grey_imgs)).data
 
     sobel2 = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
     conv2 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
-    conv2.weight = nn.Parameter(
-        torch.from_numpy(sobel2).cuda().float().unsqueeze(0).unsqueeze(0))
+    conv2.weight = nn.Parameter(torch.from_numpy(sobel2).cuda().float().unsqueeze(0).unsqueeze(0))
     dy = conv2(Variable(grey_imgs)).data
 
     sobel_imgs = torch.cat([dx, dy], dim=1)
@@ -104,11 +103,7 @@ def per_img_demean(img):
     return img - mean  # expands
 
 
-def sobel_make_transforms(config, random_affine=False,
-                          cutout=False,
-                          cutout_p=None,
-                          cutout_max_box=None,
-                          affine_p=None):
+def sobel_make_transforms(config, random_affine=False, cutout=False, cutout_p=None, cutout_max_box=None, affine_p=None):
     tf1_list = []
     tf2_list = []
     tf3_list = []
@@ -123,14 +118,11 @@ def sobel_make_transforms(config, random_affine=False,
             torchvision.transforms.Resize(config.input_sz),
         ]
 
-    print(
-        "(_sobel_multioutput_make_transforms) config.include_rgb: %s" %
-        config.include_rgb)
+    print("(_sobel_multioutput_make_transforms) config.include_rgb: %s" % config.include_rgb)
     tf1_list.append(custom_greyscale_to_tensor(config.include_rgb))
     tf3_list.append(custom_greyscale_to_tensor(config.include_rgb))
 
     if config.fluid_warp:
-        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         # 50-50 do rotation or not
         print("adding rotation option for imgs_tf: %d" % config.rot_val)
         tf2_list += [torchvision.transforms.RandomApply(
@@ -144,6 +136,7 @@ def sobel_make_transforms(config, random_affine=False,
         tf2_list += [torchvision.transforms.RandomChoice(imgs_tf_crops)]
     else:
         # default
+        rand_crop_sz = [int(config.rand_crop_sz * config.input_sz[0]), int(config.rand_crop_sz * config.input_sz[1])]
         tf2_list += [torchvision.transforms.RandomCrop(rand_crop_sz)]
 
     if random_affine:
@@ -164,14 +157,12 @@ def sobel_make_transforms(config, random_affine=False,
             cutout_p = config.cutout_p
             cutout_max_box = config.cutout_max_box
 
-        print("adding cutout with p %f max box %f" % (cutout_p,
-                                                      cutout_max_box))
-        # https://github.com/uoguelph-mlrg/Cutout/blob/master/images
-        # /cutout_on_cifar10.jpg
-        min_box = [int(config.rand_crop_sz[0] * config.input_sz * 0.2),
-                   int(config.rand_crop_sz[1] * config.input_sz * 0.2)]
-        max_box = [int(config.rand_crop_sz[0] * config.input_sz * cutout_max_box),
-                   int(config.rand_crop_sz[1] * config.input_sz * cutout_max_box)]
+        print("adding cutout with p %f max box %f" % (cutout_p, cutout_max_box))
+        # https://github.com/uoguelph-mlrg/Cutout/blob/master/images/cutout_on_cifar10.jpg
+        min_box = [int(config.rand_crop_sz * config.input_sz[0] * 0.2),
+                   int(config.rand_crop_sz * config.input_sz[1] * 0.2)]
+        max_box = [int(config.rand_crop_sz * config.input_sz[0] * cutout_max_box),
+                   int(config.rand_crop_sz * config.input_sz[1] * cutout_max_box)]
         tf2_list.append(
             torchvision.transforms.RandomApply(
                 [

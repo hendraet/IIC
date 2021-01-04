@@ -20,7 +20,7 @@ from .general import reorder_train_deterministic
 
 def cluster_twohead_create_dataloaders(config):
     assert (config.mode == "IID")
-    assert (config.twohead)
+    assert config.twohead
 
     target_transform = None
 
@@ -75,33 +75,28 @@ def cluster_twohead_create_dataloaders(config):
         tf1, tf2, tf3 = greyscale_make_transforms(config)
 
     else:
-        assert (False)
+        assert False
 
     print("Making datasets with %s and %s" % (dataset_class, target_transform))
     sys.stdout.flush()
 
-    dataloaders_head_A = \
-        _create_dataloaders(config, dataset_class, tf1, tf2,
-                            partitions=config.train_partitions_head_A,
-                            target_transform=target_transform)
+    dataloaders_head_A = _create_dataloaders(config, dataset_class, tf1, tf2,
+                                             partitions=config.train_partitions_head_A,
+                                             target_transform=target_transform)
 
-    dataloaders_head_B = \
-        _create_dataloaders(config, dataset_class, tf1, tf2,
-                            partitions=config.train_partitions_head_B,
-                            target_transform=target_transform)
+    dataloaders_head_B = _create_dataloaders(config, dataset_class, tf1, tf2,
+                                             partitions=config.train_partitions_head_B,
+                                             target_transform=target_transform)
 
-    mapping_assignment_dataloader = \
-        _create_mapping_loader(config, dataset_class, tf3,
-                               partitions=config.mapping_assignment_partitions,
-                               target_transform=target_transform)
+    mapping_assignment_dataloader = _create_mapping_loader(config, dataset_class, tf3,
+                                                           partitions=config.mapping_assignment_partitions,
+                                                           target_transform=target_transform)
 
-    mapping_test_dataloader = \
-        _create_mapping_loader(config, dataset_class, tf3,
-                               partitions=config.mapping_test_partitions,
-                               target_transform=target_transform)
+    mapping_test_dataloader = _create_mapping_loader(config, dataset_class, tf3,
+                                                     partitions=config.mapping_test_partitions,
+                                                     target_transform=target_transform)
 
-    return dataloaders_head_A, dataloaders_head_B, \
-           mapping_assignment_dataloader, mapping_test_dataloader
+    return dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader
 
 
 # Used by sobel and greyscale clustering single head scripts -------------------
@@ -259,10 +254,7 @@ def make_MNIST_data(config, tf1=None, tf2=None, tf3=None,
 
 # Data creation helpers --------------------------------------------------------
 
-def _create_dataloaders(config, dataset_class, tf1, tf2,
-                        partitions,
-                        target_transform=None,
-                        shuffle=False):
+def _create_dataloaders(config, dataset_class, tf1, tf2, partitions, target_transform=None, shuffle=False):
     train_imgs_list = []
     for train_partition in partitions:
         if "STL10" == config.dataset:
@@ -271,7 +263,6 @@ def _create_dataloaders(config, dataset_class, tf1, tf2,
                 transform=tf1,
                 split=train_partition,
                 target_transform=target_transform,
-                # download=True
             )
         else:
             train_imgs_curr = dataset_class(
@@ -295,13 +286,11 @@ def _create_dataloaders(config, dataset_class, tf1, tf2,
                                                    drop_last=False)
 
     if not shuffle:
-        assert (isinstance(train_dataloader.sampler,
-                           torch.utils.data.sampler.SequentialSampler))
+        assert (isinstance(train_dataloader.sampler, torch.utils.data.sampler.SequentialSampler))
     dataloaders = [train_dataloader]
 
     for d_i in xrange(config.num_dataloaders):
-        print("Creating auxiliary dataloader ind %d out of %d time %s" %
-              (d_i, config.num_dataloaders, datetime.now()))
+        print("Creating auxiliary dataloader ind %d out of %d time %s" % (d_i, config.num_dataloaders, datetime.now()))
         sys.stdout.flush()
 
         train_tf_imgs_list = []
@@ -509,7 +498,7 @@ def _cifar100_to_cifar20(target):
 class HandwritingDataset(Dataset):
     def __init__(self, json_file_path, dataset_root, transform=None):
         full_json_file_path = os.path.join(dataset_root, json_file_path)
-        assert os.path.exists(full_json_file_path),\
+        assert os.path.exists(full_json_file_path), \
             "Path to dataset file has to be of the form [dataset]_[train|test|val].json"
         with open(full_json_file_path, "r") as f:
             self.data = json.load(f)
@@ -537,106 +526,67 @@ class HandwritingDataset(Dataset):
         return image, target_class_idx
 
 
-def create_handwriting_clustering_dataloaders(config):
-    """
-    My original data loading code is complex to cover all my experiments. Here is a simple version.
-    Use it to replace cluster_twohead_create_dataloaders() in the scripts.
+def _create_hw_dataloaders(config, dataset_description_path, dataset_root, tf1, tf2):
+    dataset = HandwritingDataset(dataset_description_path, dataset_root, tf1)
+    datasets_tf = [
+        HandwritingDataset(dataset_description_path, dataset_root, tf2) for _ in range(config.num_dataloaders)
+    ]
 
-    This uses ImageFolder but you could use your own subclass of torch.utils.data.Dataset.
-    (ImageFolder data is not shuffled so an ideally deterministic random sampler is needed.)
+    dataloaders = [torch.utils.data.DataLoader(
+        dataset,
+        batch_size=config.dataloader_batch_sz,
+        shuffle=False,
+        sampler=DeterministicRandomSampler(dataset),
+        num_workers=0,
+        drop_last=False)]
+    dataloaders += [torch.utils.data.DataLoader(
+        datasets_tf[i],
+        batch_size=config.dataloader_batch_sz,
+        shuffle=False,
+        sampler=DeterministicRandomSampler(datasets_tf[i]),
+        num_workers=0,
+        drop_last=False) for i in range(config.num_dataloaders)]
 
-    :param config: Requires num_dataloaders and values used by *make_transforms(), e.g. crop size,
-    input size etc.
-    :return: Training and testing dataloaders
-    """
+    return dataloaders
 
-    # Change these according to your data:
-    greyscale = True
-    assert (config.batchnorm_track)  # recommended (for test time invariance to batch size)
+
+def _create_hw_mapping_loader(config, dataset_description_path, dataset_root, tf):
+    mapping_dataset = HandwritingDataset(dataset_description_path, dataset_root, tf)
+    mapping_dataloader = torch.utils.data.DataLoader(
+        mapping_dataset,
+        batch_size=config.batch_sz,
+        shuffle=False,
+        sampler=DeterministicRandomSampler(mapping_dataset),
+        num_workers=0,
+        drop_last=False
+    )
+    return mapping_dataloader
+
+
+def create_handwriting_dataloaders(config, twohead=False):
+    assert config.batchnorm_track  # recommended (for test time invariance to batch size)
 
     # Transforms:
-    if greyscale:
-        tf1, tf2, tf3 = greyscale_make_transforms(config)
-    else:
+    if config.sobel:
         tf1, tf2, tf3 = sobel_make_transforms(config)
+    else:
+        tf1, tf2, tf3 = greyscale_make_transforms(config)
 
     train_json_path = config.dataset + "_train.json"
     test_json_path = config.dataset + "_test.json"
     val_json_path = config.dataset + "_val.json"
+    actual_dataset_root = os.path.join(config.dataset_root, config.dataset)
 
     # Training data:
-    # main output head (B), auxiliary overclustering head (A), same data for both
-    dataset_head_B = HandwritingDataset(train_json_path, config.dataset_root, tf1)
-    datasets_tf_head_B = [HandwritingDataset(train_json_path, config.dataset_root, tf2)
-                          for _ in range(config.num_dataloaders)]
-    # TODO: remove
-    # to_pil = torchvision.transforms.ToPILImage(mode=None)
-    # for i in range(20):
-    #     img, cls = dataset_head_B[i]
-    #     pil_img = to_pil(img)
-    #     filename = os.path.join("tmp", str(i) + "_" + dataset_head_B.get_class_string_for_idx(cls) + ".png")
-    #     pil_img.save(filename)
-    #
-    #     img, cls = datasets_tf_head_B[0][i]
-    #     pil_img = to_pil(img)
-    #     filename = os.path.join("tmp", str(i) + "_tf_" + datasets_tf_head_B[0].get_class_string_for_idx(cls) + ".png")
-    #     pil_img.save(filename)
-
-    dataloaders_head_B = [torch.utils.data.DataLoader(
-        dataset_head_B,
-        batch_size=config.dataloader_batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(dataset_head_B),
-        num_workers=0,
-        drop_last=False)]
-    dataloaders_head_B += [torch.utils.data.DataLoader(
-        datasets_tf_head_B[i],
-        batch_size=config.dataloader_batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(datasets_tf_head_B[i]),
-        num_workers=0,
-        drop_last=False) for i in range(config.num_dataloaders)]
-
-    dataset_head_A = HandwritingDataset(train_json_path, config.dataset_root, tf1)
-    datasets_tf_head_A = [HandwritingDataset(train_json_path, config.dataset_root, tf2)
-                          for _ in range(config.num_dataloaders)]
-    dataloaders_head_A = [torch.utils.data.DataLoader(
-        dataset_head_A,
-        batch_size=config.dataloader_batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(dataset_head_A),
-        num_workers=0,
-        drop_last=False)]
-    dataloaders_head_A += [torch.utils.data.DataLoader(
-        datasets_tf_head_A[i],
-        batch_size=config.dataloader_batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(datasets_tf_head_A[i]),
-        num_workers=0,
-        drop_last=False) for i in range(config.num_dataloaders)]
+    dataloader_list = [_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2)]
+    if twohead:
+        dataloader_list.append(_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2))
 
     # Testing data (labelled):
-    mapping_assignment_dataset = HandwritingDataset(val_json_path, config.dataset_root, tf3)
-    mapping_assignment_dataloader = torch.utils.data.DataLoader(
-        mapping_assignment_dataset,
-        batch_size=config.batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(mapping_assignment_dataset),
-        num_workers=0,
-        drop_last=False
-    )
+    mapping_assignment_dataloader = _create_hw_mapping_loader(config, val_json_path, actual_dataset_root, tf3)
+    mapping_test_dataloader = _create_hw_mapping_loader(config, test_json_path, actual_dataset_root, tf3)
 
-    mapping_test_dataset = HandwritingDataset(test_json_path, config.dataset_root, tf3)
-    mapping_test_dataloader = torch.utils.data.DataLoader(
-        mapping_test_dataset,
-        batch_size=config.batch_sz,
-        shuffle=False,
-        sampler=DeterministicRandomSampler(mapping_test_dataset),
-        num_workers=0,
-        drop_last=False
-    )
-
-    return dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader
+    return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
 
 
 def create_basic_clustering_dataloaders(config):

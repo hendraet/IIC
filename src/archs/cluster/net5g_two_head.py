@@ -13,7 +13,6 @@ class ClusterNet5gTwoHeadHead(nn.Module):
         super(ClusterNet5gTwoHeadHead, self).__init__()
 
         self.batchnorm_track = config.batchnorm_track
-
         self.semisup = semisup
 
         if not semisup:
@@ -21,7 +20,8 @@ class ClusterNet5gTwoHeadHead(nn.Module):
 
             self.heads = nn.ModuleList([nn.Sequential(
                 nn.Linear(512 * BasicBlock.expansion, output_k),
-                nn.Softmax(dim=1)) for _ in xrange(self.num_sub_heads)])
+                nn.Softmax(dim=1)) for _ in xrange(self.num_sub_heads)
+            ])
         else:
             self.head = nn.Linear(512 * BasicBlock.expansion, output_k)
 
@@ -43,36 +43,32 @@ class ClusterNet5gTwoHead(ResNet):
     def __init__(self, config):
         # no saving of configs
         super(ClusterNet5gTwoHead, self).__init__()
+        assert len(config.output_ks) == 2
 
         self.batchnorm_track = config.batchnorm_track
-
         self.trunk = ClusterNet5gTrunk(config)
+        self.head_A = ClusterNet5gTwoHeadHead(config, output_k=config.output_ks[0])
 
-        self.head_A = ClusterNet5gTwoHeadHead(config, output_k=config.output_k_A)
-
-        semisup = (hasattr(config, "semisup") and
-                   config.semisup)
+        semisup = (hasattr(config, "semisup") and config.semisup)
         print("semisup: %s" % semisup)
 
-        self.head_B = ClusterNet5gTwoHeadHead(config, output_k=config.output_k_B, semisup=semisup)
-
+        self.head_B = ClusterNet5gTwoHeadHead(config, output_k=config.output_ks[1], semisup=semisup)
         self._initialize_weights()
 
-    def forward(self, x, head="B", kmeans_use_features=False, trunk_features=False, penultimate_features=False):
-        # default is "B" for use by eval code
-        # training script switches between A and model_indB
+    def forward(self, x, head_idx=1, kmeans_use_features=False, trunk_features=False, penultimate_features=False):
+        # default is index 1 (for head B) for use by eval code
+        # training script switches between A (index 0) and B
 
         x = self.trunk(x, penultimate_features=penultimate_features)
-
         if trunk_features:  # for semisup
             return x
 
         # returns list or single
-        if head == "A":
+        if head_idx == 0:
             x = self.head_A(x, kmeans_use_features=kmeans_use_features)
-        elif head == "B":
+        elif head_idx == 1:
             x = self.head_B(x, kmeans_use_features=kmeans_use_features)
         else:
-            assert (False)
+            assert False, "Index too high for TwoHead architecture"
 
         return x

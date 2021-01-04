@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from src.utils.cluster.render import save_progress
+from src.utils.utils import get_std_arg_parser
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -20,7 +21,8 @@ import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
 from src.utils.cluster.transforms import sobel_process
 from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
-from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_clustering_dataloaders
+from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_dataloaders, \
+    cluster_create_dataloaders
 from src.utils.cluster.IID_losses import IID_loss
 
 """
@@ -31,35 +33,23 @@ from src.utils.cluster.IID_losses import IID_loss
 
 
 def parse_config():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("model_ind", type=int)
-    parser.add_argument("dataset_root", type=str)
+    parser = get_std_arg_parser()
+    parser.add_argument("dataset_root", type=str, help="dir where the dataset dir is located")
     parser.add_argument("dataset", type=str)
-
-    parser.add_argument("--arch", type=str, required=True, help="selects architecture of the models")
     parser.add_argument("--opt", type=str, default="Adam")
-    parser.add_argument("--mode", type=str, default="IID")
+    parser.add_argument("--mode", type=str)
     parser.add_argument("--sobel", default=False, action="store_true")
 
     parser.add_argument("--gt_k", type=int, default=5, help="actual number of classes in the dataset")
-    parser.add_argument("--output_k_A", type=int, required=True,
-                        help="number of classes that head A should produce - can be used for overclustering")
-    parser.add_argument("--output_k_B", type=int, required=True,
-                        help="number of classes that head B should produce - can be used for overclustering")
+    parser.add_argument("--output_ks", type=int, nargs="+",
+                        help="number of classes that each head should produce - can be used for overclustering")
 
     parser.add_argument("--lamb", type=float, default=1.0)
 
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--lr_schedule", type=int, nargs="+", default=[])
-    parser.add_argument("--lr_mult", type=float, default=0.1)
-
-    parser.add_argument("--num_epochs", type=int, default=1000)
     parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
     parser.add_argument("--num_dataloaders", type=int, default=3)
     parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
 
-    parser.add_argument("--out_root", type=str)
-    parser.add_argument("--restart", dest="restart", default=False, action="store_true")
     parser.add_argument("--restart_from_best", dest="restart_from_best", default=False, action="store_true")
     parser.add_argument("--test_code", dest="test_code", default=False, action="store_true")
 
@@ -71,18 +61,17 @@ def parse_config():
                         help="Adds an additional evaluation step that evaluates the model in train mode instead of eval"
                              " mode")
 
-    parser.add_argument("--head_A_first", default=False, action="store_true")
-    parser.add_argument("--head_A_epochs", type=int, default=1)
-    parser.add_argument("--head_B_epochs", type=int, default=1)
+    parser.add_argument("--reverse_heads", default=False, action="store_true")
+    parser.add_argument("--head_epochs", type=int, nargs="+", default=[1])
 
-    parser.add_argument("--batchnorm_track", default=False, action="store_true")
-
+    parser.add_argument("--batchnorm_track", default=False, action="store_true",
+                        help="tracks batchnorm running stats")
     parser.add_argument("--save_progression", default=False, action="store_true")
-
-    parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")
+    parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")  # TODO?
 
     # transforms
-    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true")
+    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true", 
+                        help="argument for STL10 dataset where unlabelled data is added to the train set")
     parser.add_argument("--include_rgb", dest="include_rgb", default=False, action="store_true")
 
     parser.add_argument("--demean", dest="demean", default=False, action="store_true")
@@ -101,8 +90,9 @@ def parse_config():
     parser.add_argument("--input_sz", type=int, nargs="+", default=[64, 216])
 
     parser.add_argument("--fluid_warp", dest="fluid_warp", default=False, action="store_true")
-    parser.add_argument("--rand_crop_sz", type=int, default=0.9)
-    parser.add_argument("--rand_crop_szs_tf", type=int, nargs="+", default=[0.8, 0.9, 1.0])  # only used if fluid warp true
+    parser.add_argument("--rand_crop_sz", type=float, default=0.9)
+    parser.add_argument("--rand_crop_szs_tf", type=float, nargs="+",
+                        default=[0.8, 0.9, 1.0])  # only used if fluid warp true
     parser.add_argument("--rot_val", type=float, default=0.)  # only used if fluid warp true
 
     parser.add_argument("--always_rot", dest="always_rot", default=False, action="store_true")
@@ -123,7 +113,22 @@ def parse_config():
 
 
 def setup(config):
-    config.twohead = True
+    if config.mode == "IID":
+        assert ("TwoHead" in config.arch)
+        # Exactly one config has to match the groundtruth k and all ks have to be bigger than gt_k
+        assert any(k == config.gt_k for k in config.output_ks)
+        assert all(k >= config.gt_k for k in config.output_ks)
+        config.output_k = config.gt_k
+        config.eval_mode = "hung"
+        config.twohead = True
+    elif config.mode == "IID+":
+        assert len(config.output_ks) == 1 and config.output_ks[0] >= config.gt_k
+        config.output_k = config.output_ks[0]
+        config.eval_mode = "orig"
+        config.twohead = False
+        config.double_eval = False
+    else:
+        raise NotImplementedError
 
     if config.sobel:
         if not config.include_rgb:
@@ -139,13 +144,6 @@ def setup(config):
     config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     assert (config.batch_sz % config.num_dataloaders == 0)
     config.dataloader_batch_sz = config.batch_sz / config.num_dataloaders
-
-    assert (config.mode == "IID")
-    assert ("TwoHead" in config.arch)
-    assert (config.output_k_B == config.gt_k)
-    config.output_k = config.output_k_B  # for eval code
-    assert (config.output_k_A >= config.gt_k)
-    config.eval_mode = "hung"
 
     if not os.path.exists(config.out_dir):
         os.makedirs(config.out_dir)
@@ -193,30 +191,50 @@ def setup(config):
         net_name = None
         opt_name = None
 
-    if not hasattr(config, "lamb_A"):
-        config.lamb_A = config.lamb
-        config.lamb_B = config.lamb
-
     return config, net_name, opt_name
 
 
+def get_dataloader_list(config):
+    # Twohead models
+    if config.mode == "IID":
+        # Datasets that rely on the HandwritingDataset class
+        if config.dataset in ["5CHPT"]:
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, twohead=True)
+        # Standard Datasets such as STL10, MNIST, etc.
+        else:
+            dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_twohead_create_dataloaders(config)
+            dataloader_list = [dataloaders_head_A, dataloaders_head_B]
+    # Singlehead models
+    elif config.mode == "IID+":
+        # Datasets that rely on the HandwritingDataset class
+        if config.dataset in ["5CHPT"]:
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, twohead=False)
+        # Standard Datasets such as STL10, MNIST, etc.
+        else:
+            dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_create_dataloaders(config)
+            dataloader_list = [dataloaders]
+    else:
+        raise NotImplementedError
+
+    return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
+
+
 # TODO: enable semi-sup somehow
+#   - add preprocessing step to HW dataset that converts images to 3 channel imgs
 # TODO: tweak num_sub_heads?
 # TODO: center crop ok or does it remove too much information if text is aligned left
 def train(config, net_name, opt_name, render_count=-1):
-    if config.dataset in ["5CHPT"]:
-        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
-            create_handwriting_clustering_dataloaders(config)
-    else:
-        dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
-            cluster_twohead_create_dataloaders(config)
+    dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = get_dataloader_list(config)
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
         model_path = os.path.join(config.out_dir, net_name)
         print("Model path: %s" % model_path)
-        net.load_state_dict(
-            torch.load(model_path, map_location=lambda storage, loc: storage))
+        net.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: storage))
 
     net.cuda()
     net = torch.nn.DataParallel(net)
@@ -227,13 +245,7 @@ def train(config, net_name, opt_name, render_count=-1):
         opt_path = os.path.join(config.out_dir, opt_name)
         optimiser.load_state_dict(torch.load(opt_path))
 
-    heads = ["B", "A"]
-    if config.head_A_first:
-        heads = ["A", "B"]
-
-    head_epochs = {}
-    head_epochs["A"] = config.head_A_epochs
-    head_epochs["B"] = config.head_B_epochs
+    num_heads = len(config.output_ks)
 
     # Results ----------------------------------------------------------------------
 
@@ -254,11 +266,11 @@ def train(config, net_name, opt_name, render_count=-1):
             config.double_eval_avg_subhead_acc = config.double_eval_avg_subhead_acc[:next_epoch]
             config.double_eval_stats = config.double_eval_stats[:next_epoch]
 
-        config.epoch_loss_head_A = config.epoch_loss_head_A[:(next_epoch - 1)]
-        config.epoch_loss_no_lamb_head_A = config.epoch_loss_no_lamb_head_A[:(next_epoch - 1)]
+        for i, loss in enumerate(config.epoch_loss):
+            config.epoch_loss[i] = loss[:(next_epoch - 1)]
+        for i, loss_no_lamb in enumerate(config.epoch_loss_no_lamb):
+            config.epoch_loss_no_lamb[i] = loss_no_lamb[:(next_epoch - 1)]
 
-        config.epoch_loss_head_B = config.epoch_loss_head_B[:(next_epoch - 1)]
-        config.epoch_loss_no_lamb_head_B = config.epoch_loss_no_lamb_head_B[:(next_epoch - 1)]
     else:
         config.epoch_acc = []
         config.epoch_avg_subhead_acc = []
@@ -269,15 +281,14 @@ def train(config, net_name, opt_name, render_count=-1):
             config.double_eval_avg_subhead_acc = []
             config.double_eval_stats = []
 
-        config.epoch_loss_head_A = []
-        config.epoch_loss_no_lamb_head_A = []
-
-        config.epoch_loss_head_B = []
-        config.epoch_loss_no_lamb_head_B = []
+        config.epoch_loss = [[] for _ in range(num_heads)]
+        config.epoch_loss_no_lamb = [[] for _ in range(num_heads)]
 
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=config.sobel, lamb=config.lamb)
+            assert num_heads == 2
+            sub_head = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
+
         _ = cluster_eval(config, net,
                          mapping_assignment_dataloader=mapping_assignment_dataloader,
                          mapping_test_dataloader=mapping_test_dataloader,
@@ -290,7 +301,7 @@ def train(config, net_name, opt_name, render_count=-1):
         sys.stdout.flush()
         next_epoch = 1
 
-    fig, axarr = plt.subplots(6 + 2 * int(config.double_eval), sharex=False, figsize=(20, 20))
+    fig, axarr = plt.subplots(2 + 2 * num_heads + 2 * int(config.double_eval), sharex=False, figsize=(20, 20))
 
     save_progression = hasattr(config, "save_progression") and config.save_progression
     if save_progression:
@@ -303,30 +314,26 @@ def train(config, net_name, opt_name, render_count=-1):
 
     # Train ------------------------------------------------------------------------
 
+    heads = range(num_heads)
+    if config.reverse_heads:
+        heads = reversed(heads)
+
     for e_i in xrange(next_epoch, config.num_epochs):
-        print("Starting e_i: %d" % (e_i))
+        print("Starting e_i: %d" % e_i)
 
         if e_i in config.lr_schedule:
             optimiser = update_lr(optimiser, lr_mult=config.lr_mult)
 
-        for head_i in range(2):
-            head = heads[head_i]
-            if head == "A":
-                dataloaders = dataloaders_head_A
-                epoch_loss = config.epoch_loss_head_A
-                epoch_loss_no_lamb = config.epoch_loss_no_lamb_head_A
-                lamb = config.lamb_A
-            elif head == "B":
-                dataloaders = dataloaders_head_B
-                epoch_loss = config.epoch_loss_head_B
-                epoch_loss_no_lamb = config.epoch_loss_no_lamb_head_B
-                lamb = config.lamb_B
+        for head_idx in heads:
+            dataloaders = dataloader_list[head_idx]
+            epoch_loss = config.epoch_loss[head_idx]
+            epoch_loss_no_lamb = config.epoch_loss_no_lamb[head_idx]
 
             avg_loss = 0.  # over heads and head_epochs (and sub_heads)
             avg_loss_no_lamb = 0.
             avg_loss_count = 0
 
-            for head_i_epoch in range(head_epochs[head]):
+            for head_i_epoch in range(config.head_epochs[head_idx]):
                 sys.stdout.flush()
 
                 iterators = (d for d in dataloaders)
@@ -366,13 +373,13 @@ def train(config, net_name, opt_name, render_count=-1):
                         all_imgs = sobel_process(all_imgs, config.include_rgb)
                         all_imgs_tf = sobel_process(all_imgs_tf, config.include_rgb)
 
-                    x_outs = net(all_imgs, head=head)
-                    x_tf_outs = net(all_imgs_tf, head=head)
+                    x_outs = net(all_imgs, head_idx=head_idx)
+                    x_tf_outs = net(all_imgs_tf, head_idx=head_idx)
 
                     avg_loss_batch = None  # avg over the sub_heads
                     avg_loss_no_lamb_batch = None
                     for i in xrange(config.num_sub_heads):
-                        loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=lamb)
+                        loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=config.lamb)
                         if avg_loss_batch is None:
                             avg_loss_batch = loss
                             avg_loss_no_lamb_batch = loss_no_lamb
@@ -385,8 +392,8 @@ def train(config, net_name, opt_name, render_count=-1):
 
                     if ((b_i % 100) == 0) or (e_i == next_epoch and b_i < 10):
                         print("Model ind %d epoch %d head %s head_i_epoch %d batch %d: avg loss %f avg loss no lamb %f "
-                              "time %s" % (config.model_ind, e_i, head, head_i_epoch, b_i, avg_loss_batch.item(),
-                                           avg_loss_no_lamb_batch.item(), datetime.now()))
+                              "time %s" % (config.model_ind, e_i, str(head_idx), head_i_epoch, b_i,
+                                           avg_loss_batch.item(), avg_loss_no_lamb_batch.item(), datetime.now()))
                         sys.stdout.flush()
 
                     if not np.isfinite(avg_loss_batch.item()):
@@ -422,7 +429,9 @@ def train(config, net_name, opt_name, render_count=-1):
         # Can also pick the subhead using the evaluation process (to do this, set use_sub_head=None)
         sub_head = None
         if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net, sobel=config.sobel, lamb=config.lamb)
+            assert num_heads == 2
+            sub_head = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
+
         is_best = cluster_eval(config, net,
                                mapping_assignment_dataloader=mapping_assignment_dataloader,
                                mapping_test_dataloader=mapping_test_dataloader,
@@ -442,30 +451,26 @@ def train(config, net_name, opt_name, render_count=-1):
         axarr[1].plot(config.epoch_avg_subhead_acc)
         axarr[1].set_title("acc (avg), top: %f" % max(config.epoch_avg_subhead_acc))
 
-        axarr[2].clear()
-        axarr[2].plot(config.epoch_loss_head_A)
-        axarr[2].set_title("Loss head A")
+        last_ax_idx = 1
+        starting_ax_idx = last_ax_idx + 1
+        for i in range(num_heads):
+            axarr[starting_ax_idx + i].clear()
+            axarr[starting_ax_idx + i].plot(config.epoch_loss[i])
+            axarr[starting_ax_idx + i].set_title("Loss head_idx " + str(i))
 
-        axarr[3].clear()
-        axarr[3].plot(config.epoch_loss_no_lamb_head_A)
-        axarr[3].set_title("Loss no lamb head A")
-
-        axarr[4].clear()
-        axarr[4].plot(config.epoch_loss_head_B)
-        axarr[4].set_title("Loss head B")
-
-        axarr[5].clear()
-        axarr[5].plot(config.epoch_loss_no_lamb_head_B)
-        axarr[5].set_title("Loss no lamb head B")
+            axarr[starting_ax_idx + i + 1].clear()
+            axarr[starting_ax_idx + i + 1].plot(config.epoch_loss_no_lamb[i])
+            axarr[starting_ax_idx + i + 1].set_title("Loss no lamb head_idx " + str(i))
 
         if config.double_eval:
-            axarr[6].clear()
-            axarr[6].plot(config.double_eval_acc)
-            axarr[6].set_title("double eval acc (best), top: %f" % max(config.double_eval_acc))
+            next_index = starting_ax_idx + 2 * num_heads
+            axarr[next_index].clear()
+            axarr[next_index].plot(config.double_eval_acc)
+            axarr[next_index].set_title("double eval acc (best), top: %f" % max(config.double_eval_acc))
 
-            axarr[7].clear()
-            axarr[7].plot(config.double_eval_avg_subhead_acc)
-            axarr[7].set_title("double eval acc (avg), top: %f" % max(config.double_eval_avg_subhead_acc))
+            axarr[next_index + 1].clear()
+            axarr[next_index + 1].plot(config.double_eval_avg_subhead_acc)
+            axarr[next_index + 1].set_title("double eval acc (avg), top: %f" % max(config.double_eval_avg_subhead_acc))
 
         fig.tight_layout()
         fig.canvas.draw_idle()
