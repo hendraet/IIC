@@ -270,7 +270,6 @@ def _create_dataloaders(config, dataset_class, tf1, tf2, partitions, target_tran
                 transform=tf1,
                 train=train_partition,
                 target_transform=target_transform,
-                download=True
             )
 
         if hasattr(config, "mix_train"):

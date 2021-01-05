@@ -95,9 +95,10 @@ class ClusterNet5g(ResNet):
         self.trunk = ClusterNet5gTrunk(config)
 
         # uses dummy forward pass to dynamically calculate the size of the resulting trunk features
-        self.trunk.eval()
         dummy_img = torch.zeros([1, config.in_channels, config.input_sz[0], config.input_sz[1]])
-        out_features = self.trunk(dummy_img)
+        self.trunk.eval()
+        with torch.no_grad():
+            out_features = self.trunk(dummy_img)
         self.trunk.train()
         assert len(out_features.shape) == 2
 

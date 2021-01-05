@@ -116,12 +116,12 @@ def main():
 
         test_data = dataset_class( root=old_config.dataset_root, transform=None, split="test")
     elif old_config.dataset == "5CHPT":
-        assert False, "Is this already tested with sobel?"
-        train_json_path = os.path.join(old_config.dataset, old_config.dataset + "_train.json")
-        train_data = HandwritingDataset(train_json_path, old_config.dataset_root, transform=tf2)
+        dataset_root = os.path.join(old_config.dataset_root, old_config.dataset)
+        train_json_path = old_config.dataset + "_train.json"
+        train_data = HandwritingDataset(train_json_path, dataset_root, transform=tf2)
 
-        test_json_path = os.path.join(old_config.dataset, old_config.dataset + "_test.json")
-        test_data = HandwritingDataset(test_json_path, old_config.dataset_root, transform=None)
+        test_json_path = old_config.dataset + "_test.json"
+        test_data = HandwritingDataset(test_json_path, dataset_root, transform=None)
     else:
         raise NotImplementedError
 
@@ -141,7 +141,7 @@ def main():
 
     # Model ----------------------------------------------------------------------
 
-    net_features = archs.__dict__[old_config.arch](old_config)
+    net_features = archs.__dict__[old_config.arch](old_config).cuda()
 
     if not config.restart:
         model_path = os.path.join(old_config.out_dir, "best_net.pytorch")
@@ -236,6 +236,8 @@ def main():
                 sys.stdout.flush()
 
         avg_loss /= num_batches
+
+        # Eval ----------------------------------------------------------------------
 
         net.eval()
         acc = assess_acc_block(net, test_loader,

@@ -17,14 +17,14 @@ def IID_loss(x_out, x_tf_out, lamb=1.0, EPS=sys.float_info.epsilon):
     p_j[(p_j < EPS).data] = EPS
     p_i[(p_i < EPS).data] = EPS
 
-    loss = - p_i_j * (torch.log(p_i_j) \
-                      - lamb * torch.log(p_j) \
+    loss = - p_i_j * (torch.log(p_i_j)
+                      - lamb * torch.log(p_j)
                       - lamb * torch.log(p_i))
 
     loss = loss.sum()
 
-    loss_no_lamb = - p_i_j * (torch.log(p_i_j) \
-                              - torch.log(p_j) \
+    loss_no_lamb = - p_i_j * (torch.log(p_i_j)
+                              - torch.log(p_j)
                               - torch.log(p_i))
 
     loss_no_lamb = loss_no_lamb.sum()
