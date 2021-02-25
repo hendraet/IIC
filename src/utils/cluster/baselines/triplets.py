@@ -37,7 +37,7 @@ def make_triplets_data(config):
 
   elif config.dataset == "STL10":
     assert (config.mix_train)
-    if not config.stl_leave_out_unlabelled:
+    if not config.leave_out_unlabelled:
       print("adding unlabelled data for STL10")
       config.train_partitions_head_A = ["train+unlabeled", "test"]
     else:

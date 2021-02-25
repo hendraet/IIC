@@ -46,7 +46,7 @@ def cluster_twohead_create_dataloaders(config):
 
     elif config.dataset == "STL10":
         assert (config.mix_train)
-        if not config.stl_leave_out_unlabelled:
+        if not config.leave_out_unlabelled:
             print("adding unlabelled data for STL10")
             config.train_partitions_head_A = ["train+unlabeled", "test"]
         else:
@@ -495,14 +495,22 @@ def _cifar100_to_cifar20(target):
 # Basic dataloaders --------------------------------------------------------
 
 class HandwritingDataset(Dataset):
-    def __init__(self, json_file_path, dataset_root, transform=None):
-        full_json_file_path = os.path.join(dataset_root, json_file_path)
-        assert os.path.exists(full_json_file_path), \
-            "Path to dataset file has to be of the form [dataset]_[train|test|val].json"
-        with open(full_json_file_path, "r") as f:
-            self.data = json.load(f)
+    def __init__(self, dataset_descriptions, dataset_root, transform=None):
+        self.data = []
+        for dataset_description in dataset_descriptions:
+            full_dataset_description_path = os.path.join(dataset_root, dataset_description)
+            assert os.path.exists(full_dataset_description_path), \
+                "Path to dataset file has to be of the form [dataset]_[train|test|val|unlabelled].json"
+
+            with open(full_dataset_description_path, "r") as f:
+                samples = json.load(f)
+            for sample in samples:
+                sample["path"] = os.path.join(os.path.dirname(full_dataset_description_path), sample["path"])
+            self.data.extend(samples)
+
         self.transform = transform
         self.dataset_root = dataset_root
+        # TODO: assertion that all ds partitions have the same classes would be nice
         self.classes = sorted(list(set([sample["type"] for sample in self.data])))
 
     def __len__(self):
@@ -515,20 +523,21 @@ class HandwritingDataset(Dataset):
         return self.classes[idx]
 
     def __getitem__(self, idx):
-        image_path = os.path.join(self.dataset_root, self.data[idx]["path"])
+        image_path = self.data[idx]["path"]
         image = Image.open(image_path)
         if self.transform is not None:
             image = self.transform(image)
 
-        target_class_idx = self.classes.index(self.data[idx]["type"])
+        string_type = self.data[idx]["type"]
+        target_class_idx = self.classes.index(string_type) if string_type != "" else -1
 
         return image, target_class_idx
 
 
-def _create_hw_dataloaders(config, dataset_description_path, dataset_root, tf1, tf2):
-    dataset = HandwritingDataset(dataset_description_path, dataset_root, tf1)
+def _create_hw_dataloaders(config, dataset_descriptions, dataset_root, tf1, tf2):
+    dataset = HandwritingDataset(dataset_descriptions, dataset_root, tf1)
     datasets_tf = [
-        HandwritingDataset(dataset_description_path, dataset_root, tf2) for _ in range(config.num_dataloaders)
+        HandwritingDataset(dataset_descriptions, dataset_root, tf2) for _ in range(config.num_dataloaders)
     ]
 
     dataloaders = [torch.utils.data.DataLoader(
@@ -549,8 +558,8 @@ def _create_hw_dataloaders(config, dataset_description_path, dataset_root, tf1, 
     return dataloaders
 
 
-def _create_hw_mapping_loader(config, dataset_description_path, dataset_root, tf):
-    mapping_dataset = HandwritingDataset(dataset_description_path, dataset_root, tf)
+def _create_hw_mapping_loader(config, dataset_descriptions, dataset_root, tf):
+    mapping_dataset = HandwritingDataset(dataset_descriptions, dataset_root, tf)
     mapping_dataloader = torch.utils.data.DataLoader(
         mapping_dataset,
         batch_size=config.batch_sz,
@@ -562,6 +571,8 @@ def _create_hw_mapping_loader(config, dataset_description_path, dataset_root, tf
     return mapping_dataloader
 
 
+# TODO: unlabelled case: dataloaders have to include unlabelled stuff and mapping assignment loader hast to be plain
+#   train thingy
 def create_handwriting_dataloaders(config, twohead=False):
     assert config.batchnorm_track  # recommended (for test time invariance to batch size)
 
@@ -571,19 +582,26 @@ def create_handwriting_dataloaders(config, twohead=False):
     else:
         tf1, tf2, tf3 = greyscale_make_transforms(config)
 
-    train_json_path = config.dataset + "_train.json"
-    test_json_path = config.dataset + "_test.json"
-    val_json_path = config.dataset + "_val.json"
+    # TODO: too many magic strings
+    train_json_path = os.path.join("train", config.dataset + "_train.json")
+    test_json_path = os.path.join("test", config.dataset + "_test.json")
+    val_json_path = os.path.join("val", config.dataset + "_val.json")
+    unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled.json")
     actual_dataset_root = os.path.join(config.dataset_root, config.dataset)
 
+    if config.leave_out_unlabelled:
+        train_files = [train_json_path]
+    else:
+        train_files = [train_json_path, unlabelled_json_path]
+
     # Training data:
-    dataloader_list = [_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2)]
+    dataloader_list = [_create_hw_dataloaders(config, train_files, actual_dataset_root, tf1, tf2)]
     if twohead:
-        dataloader_list.append(_create_hw_dataloaders(config, train_json_path, actual_dataset_root, tf1, tf2))
+        dataloader_list.append(_create_hw_dataloaders(config, train_files, actual_dataset_root, tf1, tf2))
 
     # Testing data (labelled):
-    mapping_assignment_dataloader = _create_hw_mapping_loader(config, val_json_path, actual_dataset_root, tf3)
-    mapping_test_dataloader = _create_hw_mapping_loader(config, test_json_path, actual_dataset_root, tf3)
+    mapping_assignment_dataloader = _create_hw_mapping_loader(config, [val_json_path], actual_dataset_root, tf3)
+    mapping_test_dataloader = _create_hw_mapping_loader(config, [test_json_path], actual_dataset_root, tf3)
 
     return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
 

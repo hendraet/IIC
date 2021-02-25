@@ -9,6 +9,7 @@ import matplotlib
 import torch
 import torchvision
 
+from src import HANDWRITING_DATASETS
 from src.utils.cluster.data import HandwritingDataset
 from src.utils.utils import get_std_arg_parser
 
@@ -115,7 +116,7 @@ def main():
         train_data = dataset_class(root=old_config.dataset_root, transform=tf2, split="train")  # also could use tf1
 
         test_data = dataset_class( root=old_config.dataset_root, transform=None, split="test")
-    elif old_config.dataset == "5CHPT":
+    elif old_config.dataset in HANDWRITING_DATASETS:
         dataset_root = os.path.join(old_config.dataset_root, old_config.dataset)
         train_json_path = old_config.dataset + "_train.json"
         train_data = HandwritingDataset(train_json_path, dataset_root, transform=tf2)

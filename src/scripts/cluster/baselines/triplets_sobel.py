@@ -53,7 +53,7 @@ parser.add_argument("--restart", dest="restart", default=False,
 parser.add_argument("--test_code", dest="test_code", default=False,
                     action="store_true")
 
-parser.add_argument("--stl_leave_out_unlabelled", default=False,
+parser.add_argument("--leave_out_unlabelled", default=False,
                     action="store_true")
 
 parser.add_argument("--save_freq", type=int, default=10)

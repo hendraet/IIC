@@ -13,6 +13,7 @@ import torch
 
 from src.utils.cluster.render import save_progress
 from src.utils.utils import get_std_arg_parser
+from src import HANDWRITING_DATASETS
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -53,7 +54,7 @@ def parse_config():
     parser.add_argument("--restart_from_best", dest="restart_from_best", default=False, action="store_true")
     parser.add_argument("--test_code", dest="test_code", default=False, action="store_true")
 
-    parser.add_argument("--stl_leave_out_unlabelled", default=False, action="store_true")
+    parser.add_argument("--leave_out_unlabelled", default=False, action="store_true")
 
     parser.add_argument("--save_freq", type=int, default=20)
 
@@ -70,7 +71,7 @@ def parse_config():
     parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")  # TODO?
 
     # transforms
-    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true", 
+    parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true",
                         help="argument for STL10 dataset where unlabelled data is added to the train set")
     parser.add_argument("--include_rgb", dest="include_rgb", default=False, action="store_true")
 
@@ -197,23 +198,19 @@ def setup(config):
 def get_dataloader_list(config):
     # Twohead models
     if config.mode == "IID":
-        # Datasets that rely on the HandwritingDataset class
-        if config.dataset in ["5CHPT"]:
+        if config.dataset in HANDWRITING_DATASETS:
             dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
                 create_handwriting_dataloaders(config, twohead=True)
-        # Standard Datasets such as STL10, MNIST, etc.
-        else:
+        else:  # Standard Datasets such as STL10, MNIST, etc.
             dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
                 cluster_twohead_create_dataloaders(config)
             dataloader_list = [dataloaders_head_A, dataloaders_head_B]
     # Singlehead models
     elif config.mode == "IID+":
-        # Datasets that rely on the HandwritingDataset class
-        if config.dataset in ["5CHPT"]:
+        if config.dataset in HANDWRITING_DATASETS:
             dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
                 create_handwriting_dataloaders(config, twohead=False)
-        # Standard Datasets such as STL10, MNIST, etc.
-        else:
+        else:  # Standard Datasets such as STL10, MNIST, etc.
             dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
                 cluster_create_dataloaders(config)
             dataloader_list = [dataloaders]
