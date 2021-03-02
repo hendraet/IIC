@@ -118,11 +118,11 @@ def main():
         test_data = dataset_class( root=old_config.dataset_root, transform=None, split="test")
     elif old_config.dataset in HANDWRITING_DATASETS:
         dataset_root = os.path.join(old_config.dataset_root, old_config.dataset)
-        train_json_path = old_config.dataset + "_train.json"
-        train_data = HandwritingDataset(train_json_path, dataset_root, transform=tf2)
+        train_json_path = os.path.join("train", old_config.dataset + "_train.json")
+        train_data = HandwritingDataset([train_json_path], dataset_root, transform=tf2)
 
-        test_json_path = old_config.dataset + "_test.json"
-        test_data = HandwritingDataset(test_json_path, dataset_root, transform=None)
+        test_json_path = os.path.join("test", old_config.dataset + "_test.json")
+        test_data = HandwritingDataset([test_json_path], dataset_root, transform=None)
     else:
         raise NotImplementedError
 
