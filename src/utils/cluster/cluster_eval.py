@@ -1,21 +1,26 @@
 from __future__ import print_function
 
 import itertools
+import json
+import os
 import sys
+from collections import Counter
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 from .IID_losses import IID_loss
+from .data import create_handwriting_dataloaders
 from .eval_metrics import _hungarian_match, _original_match, _acc
 from .transforms import sobel_process
 
 
 def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, get_soft=False, verbose=None):
     """
-  Returns cuda tensors for flat preds and targets.
-  """
+    Returns cuda tensors for flat preds and targets.
+    """
 
     assert (not using_IR)  # sanity; IR used by segmentation only
 
@@ -119,8 +124,7 @@ def cluster_subheads_eval(config, net,
         num_samples = flat_targets_all.shape[0]
         test_accs = np.zeros(config.num_sub_heads, dtype=np.float32)
         for i in xrange(config.num_sub_heads):
-            reordered_preds = torch.zeros(num_samples,
-                                          dtype=flat_predss_all[0].dtype).cuda()
+            reordered_preds = torch.zeros(num_samples, dtype=flat_predss_all[0].dtype).cuda()
             for pred_i, target_i in all_matches[i]:
                 reordered_preds[flat_predss_all[i] == pred_i] = target_i
             test_acc = _acc(reordered_preds, flat_targets_all, config.gt_k, verbose=0)
@@ -146,8 +150,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
                                  just_matches=False,
                                  verbose=0):
     """
-    Get all best matches per head based on train set i.e. mapping_assign,
-    and mapping_assign accs.
+    Get all best matches per head based on train set i.e. mapping_assign, and mapping_assign accs.
     """
 
     if verbose:
@@ -190,7 +193,7 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
                                     preds_k=config.output_k,
                                     targets_k=config.gt_k)
         else:
-            assert (False)
+            assert False, "config mode should be one of [orig, hung]"
 
         if verbose:
             print("got match %s" % (datetime.now()))
@@ -342,3 +345,136 @@ def cluster_eval(config, net, mapping_assignment_dataloader,
         config.epoch_avg_subhead_acc.append(stats_dict["avg"])
 
         return is_best
+
+
+def get_subhead_cluster_stats(config, net):
+    net.eval()
+
+    # TODO: magic strings
+    train_json_path = os.path.join("train", config.dataset + "_train.json")
+    test_json_path = os.path.join("test", config.dataset + "_test.json")
+    val_json_path = os.path.join("val", config.dataset + "_val.json")
+    unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled_labelled.json")
+    dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+        create_handwriting_dataloaders(config, train_json_path, val_json_path, test_json_path, unlabelled_json_path,
+                                       twohead=False)
+    print("Dataloaders created")
+    # TODO: less magic
+    dataloader = dataloader_list[0][0]
+    classes = dataloader.dataset.get_classes()
+    flat_predss_all, flat_targets_all = _clustering_get_data(config, net, dataloader, sobel=config.sobel,
+                                                             using_IR=False, verbose=0)
+    print("data predicted")
+    num_samples = len(flat_targets_all)
+    assert all([len(p) == num_samples for p in flat_predss_all])
+    subhead_cluster_stats = []
+    for sh_idx, subhead_prediction in enumerate(flat_predss_all):
+        print("Processing subhead", sh_idx)
+        cluster_stats = {}
+        for i in range(num_samples):
+            cluster_id = subhead_prediction[i].item()
+            target = classes[flat_targets_all[i].item()]
+            if cluster_id not in cluster_stats:
+                cluster_stats[cluster_id] = []
+            cluster_stats[cluster_id].append(target)
+        cluster_stats = {k: Counter(v) for k, v in cluster_stats.items()}
+        subhead_cluster_stats.append(cluster_stats)
+
+    return subhead_cluster_stats
+
+
+def plot_cluster_dist_per_class(config, subhead_cluster_stats):
+    # rearrange data structure
+    num_subheads = config.num_sub_heads
+    permuted_subhead_cluster_stats = []
+    for subhead_stats in subhead_cluster_stats:
+        class_cluster_mapping = {}
+        for cluster_id in subhead_stats:
+            for class_name, num_samples in subhead_stats[cluster_id].items():
+                if class_name not in class_cluster_mapping:
+                    class_cluster_mapping[class_name] = {}
+                class_cluster_mapping[class_name][cluster_id] = num_samples
+        permuted_subhead_cluster_stats.append(class_cluster_mapping)
+
+    # plotting
+    max_num_clusters = config.output_ks[0]
+    plt.clf()
+    num_classes = max(len(d) for d in permuted_subhead_cluster_stats)  # TODO: might not work in all cases
+    fig, axs = plt.subplots(num_subheads, num_classes, sharey="all", figsize=(num_classes * 7, num_subheads * 5))
+    for sh_idx, subhead_stats in enumerate(permuted_subhead_cluster_stats):
+        for class_name, ax in zip(sorted(subhead_stats.keys()), axs[sh_idx]):
+            class_stats = subhead_stats[class_name]
+            x = [str(i) for i in range(max_num_clusters)]
+            y = [class_stats[str(i)] if str(i) in class_stats else 0.0 for i in range(max_num_clusters)]
+            relative_y = [float(s) / sum(y) for s in y]
+            ax.set_title(class_name)
+            ax.bar(x, relative_y)
+    fig.tight_layout(pad=3.0, h_pad=4.0)
+    plt.savefig("cluster_dist_per_class.png")
+
+
+def plot_aligned_clusters(config, subhead_cluster_stats):
+    # Number of predicted samples per cluster
+    # TODO: slightly larger font
+    plt.clf()
+    num_subheads = config.num_sub_heads
+    max_num_clusters = config.output_ks[0]
+    fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
+                            figsize=(max_num_clusters * 4, num_subheads * 5))
+    for sh_idx, subhead_stats in enumerate(subhead_cluster_stats):
+        for cluster_id in sorted(subhead_stats.keys(), key=int):
+            items = list(subhead_stats[cluster_id].items())
+            x, y = zip(*sorted(items, key=lambda x: x[0]))
+            relative_y = [float(s) / sum(y) for s in y]
+
+            ax = axs[sh_idx][int(cluster_id)]
+            ax.bar(x, relative_y)
+        for i, ax in enumerate(axs.flat):
+            ax.set_title(i % max_num_clusters)
+        for ax in axs[-1, :]:
+            for tick in ax.get_xticklabels():
+                tick.set_rotation(90)
+    fig.tight_layout(pad=3.0, h_pad=4.0)
+    plt.savefig("cluster_bars_aligned.png")
+
+
+def plot_unaligned_clusters(config, subhead_cluster_stats):
+    # working code for unaligned clusters
+    plt.clf()
+    max_num_clusters = max([len(s) for s in subhead_cluster_stats])
+    num_subheads = config.num_sub_heads
+    fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
+                            figsize=(max_num_clusters * 3, num_subheads * 5))
+    for sh_idx, subhead_stats in enumerate(subhead_cluster_stats):
+        for i, cluster_id in enumerate(sorted(subhead_stats.keys(), key=int)):
+            items = list(subhead_stats[cluster_id].items())
+            x, y = zip(*sorted(items, key=lambda x: x[0]))
+            relative_y = [float(s) / sum(y) for s in y]
+
+            ax = axs[sh_idx][i]
+            ax.set_title(cluster_id)
+            ax.bar(x, relative_y)
+        for ax in axs[-1, :]:
+            for tick in ax.get_xticklabels():
+                tick.set_rotation(90)
+    fig.tight_layout(pad=3.0, h_pad=4.0)
+    plt.savefig("cluster_bars_unaligned.png")
+
+
+# TODO: rename after exact function of method is known
+def evaluate_clusters(config, net):
+    # TODO
+    #   - for each subhead:
+    #       - analyse individual clusters and create class distribution (rank them based on purity)
+    #       - maybe plot PCA of individual clusters separately
+    #       - plot PCA of all clusters in single plot - might be messy because there are 35 clusters
+    #   - double check data gathering
+
+    assert False, "next step font"
+    # subhead_cluster_stats = get_subhead_cluster_stats(config, net)
+    with open("cluster_stats.json") as csf:
+        subhead_cluster_stats = json.load(csf)
+
+    plot_cluster_dist_per_class(config, subhead_cluster_stats)
+    # plot_aligned_clusters(config, subhead_cluster_stats)
+    # plot_unaligned_clusters(config, subhead_cluster_stats)
