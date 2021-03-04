@@ -17,6 +17,8 @@ from .general import reorder_train_deterministic
 
 
 # Used by sobel and greyscale clustering twohead scripts -----------------------
+from ... import HANDWRITING_DATASETS
+
 
 def cluster_twohead_create_dataloaders(config):
     assert (config.mode == "IID")
@@ -553,7 +555,7 @@ def _create_hw_dataloaders(config, dataset_descriptions, dataset_root, tf1, tf2)
         shuffle=False,
         sampler=DeterministicRandomSampler(datasets_tf[i]),
         num_workers=0,
-        drop_last=False) for i in range(config.num_dataloaders)]
+        drop_last=False) for i in range(config.num_dataloaders - 1)]
 
     return dataloaders
 
@@ -573,7 +575,8 @@ def _create_hw_mapping_loader(config, dataset_descriptions, dataset_root, tf):
 
 # TODO: unlabelled case: dataloaders have to include unlabelled stuff and mapping assignment loader hast to be plain
 #   train thingy
-def create_handwriting_dataloaders(config, twohead=False):
+def create_handwriting_dataloaders(config, train_json_path, val_json_path, test_json_path, unlabelled_json_path="",
+                                   twohead=False):
     assert config.batchnorm_track  # recommended (for test time invariance to batch size)
 
     # Transforms:
@@ -581,17 +584,12 @@ def create_handwriting_dataloaders(config, twohead=False):
         tf1, tf2, tf3 = sobel_make_transforms(config)
     else:
         tf1, tf2, tf3 = greyscale_make_transforms(config)
-
-    # TODO: too many magic strings
-    train_json_path = os.path.join("train", config.dataset + "_train.json")
-    test_json_path = os.path.join("test", config.dataset + "_test.json")
-    val_json_path = os.path.join("val", config.dataset + "_val.json")
-    unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled.json")
     actual_dataset_root = os.path.join(config.dataset_root, config.dataset)
 
     if config.leave_out_unlabelled:
         train_files = [train_json_path]
     else:
+        assert unlabelled_json_path != ""
         train_files = [train_json_path, unlabelled_json_path]
 
     # Training data:
@@ -602,6 +600,41 @@ def create_handwriting_dataloaders(config, twohead=False):
     # Testing data (labelled):
     mapping_assignment_dataloader = _create_hw_mapping_loader(config, [val_json_path], actual_dataset_root, tf3)
     mapping_test_dataloader = _create_hw_mapping_loader(config, [test_json_path], actual_dataset_root, tf3)
+
+    return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
+
+
+def get_dataloader_list(config):
+    # IID = two-head models, IID+ = single-head models
+    if config.dataset in HANDWRITING_DATASETS:
+        # TODO: too many magic strings
+        train_json_path = os.path.join("train", config.dataset + "_train.json")
+        test_json_path = os.path.join("test", config.dataset + "_test.json")
+        val_json_path = os.path.join("val", config.dataset + "_val.json")
+        unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled.json")
+
+        if config.mode == "IID":
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, train_json_path, val_json_path, test_json_path,
+                                               unlabelled_json_path, twohead=True)
+        elif config.mode == "IID+":
+            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
+                create_handwriting_dataloaders(config, train_json_path, val_json_path, test_json_path,
+                                               unlabelled_json_path, twohead=False)
+        else:
+            raise NotImplementedError
+    # Standard Datasets such as STL10, MNIST, etc.
+    else:
+        if config.mode == "IID":
+            dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_twohead_create_dataloaders(config)
+            dataloader_list = [dataloaders_head_A, dataloaders_head_B]
+        elif config.mode == "IID+":
+            dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
+                cluster_create_dataloaders(config)
+            dataloader_list = [dataloaders]
+        else:
+            raise NotImplementedError
 
     return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
 

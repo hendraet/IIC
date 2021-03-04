@@ -1,11 +1,11 @@
 from __future__ import print_function
 
-import argparse
 import itertools
 import os
 import pickle
 import sys
 from datetime import datetime
+from logging import warn
 
 import matplotlib
 import numpy as np
@@ -13,7 +13,6 @@ import torch
 
 from src.utils.cluster.render import save_progress
 from src.utils.utils import get_std_arg_parser
-from src import HANDWRITING_DATASETS
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -21,9 +20,8 @@ import matplotlib.pyplot as plt
 import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
 from src.utils.cluster.transforms import sobel_process
-from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss
-from src.utils.cluster.data import cluster_twohead_create_dataloaders, create_handwriting_dataloaders, \
-    cluster_create_dataloaders
+from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss, evaluate_clusters
+from src.utils.cluster.data import get_dataloader_list
 from src.utils.cluster.IID_losses import IID_loss
 
 """
@@ -51,9 +49,6 @@ def parse_config():
     parser.add_argument("--num_dataloaders", type=int, default=3)
     parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
 
-    parser.add_argument("--restart_from_best", dest="restart_from_best", default=False, action="store_true")
-    parser.add_argument("--test_code", dest="test_code", default=False, action="store_true")
-
     parser.add_argument("--leave_out_unlabelled", default=False, action="store_true")
 
     parser.add_argument("--save_freq", type=int, default=20)
@@ -69,6 +64,7 @@ def parse_config():
                         help="tracks batchnorm running stats")
     parser.add_argument("--save_progression", default=False, action="store_true")
     parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")  # TODO?
+    parser.add_argument("--evaluate_clusters", default=False, action="store_true")
 
     # transforms
     parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true",
@@ -109,6 +105,11 @@ def parse_config():
         config.input_sz = config.input_sz + config.input_sz
     elif len(config.input_sz) > 2:
         config.input_sz = config.input_sz[:2]
+
+    if config.evaluate_clusters:
+        config.num_dataloaders = 1
+        if not config.restart:
+            warn("Evaluating clusters on untrained model. Use --restart to reuse a trained model")
 
     return config
 
@@ -164,7 +165,7 @@ def setup(config):
         print("Loading restarting config from: %s" % reloaded_config_path)
         with open(reloaded_config_path, "rb") as config_f:
             config = pickle.load(config_f)
-        assert (config.model_ind == given_config.model_ind)
+        assert given_config.test_code or (config.model_ind == given_config.model_ind)
         config.restart = True
         config.restart_from_best = given_config.restart_from_best
 
@@ -187,45 +188,12 @@ def setup(config):
         if not hasattr(config, "batchnorm_track"):
             config.batchnorm_track = True  # before we added in false option
 
+        config.evaluate_clusters = given_config.evaluate_clusters
+
     else:
         print("Config: %s" % config_to_str(config))
         net_name = None
         opt_name = None
-
-    return config, net_name, opt_name
-
-
-def get_dataloader_list(config):
-    # Twohead models
-    if config.mode == "IID":
-        if config.dataset in HANDWRITING_DATASETS:
-            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
-                create_handwriting_dataloaders(config, twohead=True)
-        else:  # Standard Datasets such as STL10, MNIST, etc.
-            dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader = \
-                cluster_twohead_create_dataloaders(config)
-            dataloader_list = [dataloaders_head_A, dataloaders_head_B]
-    # Singlehead models
-    elif config.mode == "IID+":
-        if config.dataset in HANDWRITING_DATASETS:
-            dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = \
-                create_handwriting_dataloaders(config, twohead=False)
-        else:  # Standard Datasets such as STL10, MNIST, etc.
-            dataloaders, mapping_assignment_dataloader, mapping_test_dataloader = \
-                cluster_create_dataloaders(config)
-            dataloader_list = [dataloaders]
-    else:
-        raise NotImplementedError
-
-    return dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader
-
-
-# TODO: enable semi-sup somehow
-#   - add preprocessing step to HW dataset that converts images to 3 channel imgs
-# TODO: tweak num_sub_heads?
-# TODO: center crop ok or does it remove too much information if text is aligned left
-def train(config, net_name, opt_name, render_count=-1):
-    dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = get_dataloader_list(config)
 
     net = archs.__dict__[config.arch](config)
     if config.restart:
@@ -241,6 +209,13 @@ def train(config, net_name, opt_name, render_count=-1):
     if config.restart:
         opt_path = os.path.join(config.out_dir, opt_name)
         optimiser.load_state_dict(torch.load(opt_path))
+
+    return config, net, optimiser
+
+
+# TODO: center crop ok or does it remove too much information if text is aligned left
+def train(config, net, optimiser, render_count=-1):
+    dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = get_dataloader_list(config)
 
     num_heads = len(config.output_ks)
 
@@ -315,7 +290,7 @@ def train(config, net_name, opt_name, render_count=-1):
     if config.reverse_heads:
         heads = reversed(heads)
 
-    for e_i in xrange(next_epoch, config.num_epochs):
+    for e_i in xrange(next_epoch, config.num_epochs + 1):
         print("Starting e_i: %d" % e_i)
 
         if e_i in config.lr_schedule:
@@ -506,8 +481,13 @@ def train(config, net_name, opt_name, render_count=-1):
 
 def main():
     config = parse_config()
-    config, net_name, opt_name = setup(config)
-    train(config, net_name, opt_name)
+    # config, net, optimiser = setup(config)
+    net = None  # TODO
+    optimiser = None  # TODO
+    if config.evaluate_clusters:
+        evaluate_clusters(config, net)
+    else:
+        train(config, net, optimiser)
 
 
 if __name__ == '__main__':
