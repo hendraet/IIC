@@ -39,18 +39,18 @@ class SegmentationNet10aHead(nn.Module):
         self.cfg = cfg
         num_features = self.cfg[-1][0]
 
-        self.num_sub_heads = config.num_sub_heads
+        self.num_subheads = config.num_subheads
 
         self.heads = nn.ModuleList([nn.Sequential(
             nn.Conv2d(num_features, output_k, kernel_size=1, stride=1, dilation=1, padding=1, bias=False),
-            nn.Softmax2d()) for _ in xrange(self.num_sub_heads)
+            nn.Softmax2d()) for _ in xrange(self.num_subheads)
         ])
 
         self.input_sz = config.input_sz
 
     def forward(self, x):
         results = []
-        for i in xrange(self.num_sub_heads):
+        for i in xrange(self.num_subheads):
             x_i = self.heads[i](x)
             x_i = F.interpolate(x_i, size=self.input_sz, mode="bilinear")
             results.append(x_i)

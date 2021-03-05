@@ -23,13 +23,13 @@ if not hasattr(config, "batchnorm_track"):
   print("adding batchnorm track")
   config.batchnorm_track = True
 
-if not hasattr(config, "num_sub_heads"):
+if not hasattr(config, "num_subheads"):
   print("adding num sub heads")
-  config.num_sub_heads = config.num_heads
+  config.num_subheads = config.num_heads
 
-if not hasattr(config, "select_sub_head_on_loss"):
-  print("adding select_sub_head_on_loss")
-  config.select_sub_head_on_loss = False
+if not hasattr(config, "select_subhead_on_loss"):
+  print("adding select_subhead_on_loss")
+  config.select_subhead_on_loss = False
 
 if not hasattr(config, "use_doersch_datasets"):  # only needed for seg configs
   print("adding use doersch datasets")

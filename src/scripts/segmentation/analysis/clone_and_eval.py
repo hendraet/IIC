@@ -43,8 +43,8 @@ assert (old_config.model_ind == config.old_model_ind)
 if not hasattr(old_config, "batchnorm_track"):
   old_config.batchnorm_track = True
 
-if not hasattr(old_config, "num_sub_heads"):
-  old_config.num_sub_heads = old_config.num_heads
+if not hasattr(old_config, "num_subheads"):
+  old_config.num_subheads = old_config.num_heads
 
 if not hasattr(old_config, "use_doersch_datasets"):
   old_config.use_doersch_datasets = False

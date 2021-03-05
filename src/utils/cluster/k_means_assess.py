@@ -6,14 +6,14 @@ from .cluster_eval import _acc, _original_match, _hungarian_match
 
 def multioutput_k_means_assess(config, x_outs_all, targets, verbose=0):
   assert (False)  # outdated function
-  num_sub_heads = len(x_outs_all)
-  print("assessing multioutput using k-means, heads: %d" % num_sub_heads)
+  num_subheads = len(x_outs_all)
+  print("assessing multioutput using k-means, heads: %d" % num_subheads)
 
   accs = []
   nmis = []
   aris = []
   best_i = None
-  for i in xrange(num_sub_heads):
+  for i in xrange(num_subheads):
     x_outs = x_outs_all[i]  # not flat
     n, dlen = x_outs.shape
     # random_state=0

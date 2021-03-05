@@ -32,7 +32,7 @@ class ClusterNet6cHead(nn.Module):
         super(ClusterNet6cHead, self).__init__()
 
         self.batchnorm_track = config.batchnorm_track
-        self.num_sub_heads = config.num_sub_heads
+        self.num_subheads = config.num_subheads
         self.cfg = ClusterNet6c.cfg
         num_features = self.cfg[-1][0]
 
@@ -45,12 +45,12 @@ class ClusterNet6cHead(nn.Module):
 
         self.heads = nn.ModuleList([nn.Sequential(
             nn.Linear(num_features * features_sp_size * features_sp_size, config.output_ks[0]),
-            nn.Softmax(dim=1)) for _ in xrange(self.num_sub_heads)
+            nn.Softmax(dim=1)) for _ in xrange(self.num_subheads)
         ])
 
     def forward(self, x, kmeans_use_features=False):
         results = []
-        for i in xrange(self.num_sub_heads):
+        for i in xrange(self.num_subheads):
             if kmeans_use_features:
                 results.append(x)  # duplicates
             else:

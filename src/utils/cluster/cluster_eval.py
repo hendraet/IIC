@@ -28,13 +28,13 @@ def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, g
     num_batches = len(dataloader)
     flat_targets_all = torch.zeros((num_batches * dataloader.batch_size), dtype=torch.int32).cuda()
     flat_predss_all = [
-        torch.zeros((num_batches * config.batch_sz), dtype=torch.int32).cuda() for _ in xrange(config.num_sub_heads)
+        torch.zeros((num_batches * config.batch_sz), dtype=torch.int32).cuda() for _ in xrange(config.num_subheads)
     ]
 
     if get_soft:
         soft_predss_all = [
             torch.zeros((num_batches * config.batch_sz, config.output_k), dtype=torch.float32).cuda()
-            for _ in xrange(config.num_sub_heads)
+            for _ in xrange(config.num_subheads)
         ]
 
     num_test = 0
@@ -56,7 +56,7 @@ def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, g
         num_test += num_test_curr
 
         start_i = b_i * dataloader.batch_size
-        for i in xrange(config.num_sub_heads):
+        for i in xrange(config.num_subheads):
             x_outs_curr = x_outs[i]
             flat_preds_curr = torch.argmax(x_outs_curr, dim=1)  # along output_k
             flat_predss_all[i][start_i:(start_i + num_test_curr)] = flat_preds_curr
@@ -66,13 +66,13 @@ def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, g
 
         flat_targets_all[start_i:(start_i + num_test_curr)] = flat_targets.cuda()
 
-    flat_predss_all = [flat_predss_all[i][:num_test] for i in xrange(config.num_sub_heads)]
+    flat_predss_all = [flat_predss_all[i][:num_test] for i in xrange(config.num_subheads)]
     flat_targets_all = flat_targets_all[:num_test]
 
     if not get_soft:
         return flat_predss_all, flat_targets_all
     else:
-        soft_predss_all = [soft_predss_all[i][:num_test] for i in xrange(config.num_sub_heads)]
+        soft_predss_all = [soft_predss_all[i][:num_test] for i in xrange(config.num_subheads)]
 
         return flat_predss_all, flat_targets_all, soft_predss_all
 
@@ -83,19 +83,19 @@ def cluster_subheads_eval(config, net,
                           sobel,
                           using_IR=False,
                           get_data_fn=_clustering_get_data,
-                          use_sub_head=None,
+                          use_subhead=None,
                           verbose=0):
     """
     Used by both clustering and segmentation.
     Returns metrics for test set.
-    Get result from average accuracy of all sub_heads (mean and std).
+    Get result from average accuracy of all subheads (mean and std).
     All matches are made from training data.
     Best head metric, which is order selective unlike mean/std, is taken from
     best head determined by training data (but metric computed on test data).
 
     ^ detail only matters for IID+/semisup where there's a train/test split.
 
-    Option to choose best sub_head either based on loss (set use_head in main
+    Option to choose best subhead either based on loss (set use_head in main
     script), or eval. Former does not use labels for the selection at all and this
     has negligible impact on accuracy metric for our models.
     """
@@ -108,11 +108,11 @@ def cluster_subheads_eval(config, net,
                                                            get_data_fn=get_data_fn,
                                                            verbose=verbose)
 
-    best_sub_head_eval = np.argmax(train_accs)
-    if (config.num_sub_heads > 1) and (use_sub_head is not None):
-        best_sub_head = use_sub_head
+    best_subhead_eval = np.argmax(train_accs)
+    if (config.num_subheads > 1) and (use_subhead is not None):
+        best_subhead = use_subhead
     else:
-        best_sub_head = best_sub_head_eval
+        best_subhead = best_subhead_eval
 
     if config.mode == "IID":
         assert (config.mapping_assignment_partitions == config.mapping_test_partitions)
@@ -123,8 +123,8 @@ def cluster_subheads_eval(config, net,
                                                          verbose=verbose)
 
         num_samples = flat_targets_all.shape[0]
-        test_accs = np.zeros(config.num_sub_heads, dtype=np.float32)
-        for i in xrange(config.num_sub_heads):
+        test_accs = np.zeros(config.num_subheads, dtype=np.float32)
+        for i in xrange(config.num_subheads):
             reordered_preds = torch.zeros(num_samples, dtype=flat_predss_all[0].dtype).cuda()
             for pred_i, target_i in all_matches[i]:
                 reordered_preds[flat_predss_all[i] == pred_i] = target_i
@@ -137,10 +137,10 @@ def cluster_subheads_eval(config, net,
     return {"test_accs": list(test_accs),
             "avg": np.mean(test_accs),
             "std": np.std(test_accs),
-            "best": test_accs[best_sub_head],
+            "best": test_accs[best_subhead],
             "worst": test_accs.min(),
-            "best_train_sub_head": best_sub_head,  # from training data
-            "best_train_sub_head_match": all_matches[best_sub_head],
+            "best_train_subhead": best_subhead,  # from training data
+            "best_train_subhead_match": all_matches[best_subhead],
             "train_accs": list(train_accs)}
 
 
@@ -178,9 +178,9 @@ def _get_assignment_data_matches(net, mapping_assignment_dataloader, config,
 
     all_matches = []
     if not just_matches:
-        all_accs = np.zeros(config.num_sub_heads, dtype=np.float32)
+        all_accs = np.zeros(config.num_subheads, dtype=np.float32)
 
-    for i in xrange(config.num_sub_heads):
+    for i in xrange(config.num_subheads):
         if verbose:
             print("starting head %d with eval mode %s, %s" % (i, config.eval_mode, datetime.now()))
             sys.stdout.flush()
@@ -235,7 +235,7 @@ def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb, compare
     iterators = (d for d in dataloaders)
 
     b_i = 0
-    loss_per_sub_head = np.zeros(config.num_sub_heads)
+    loss_per_subhead = np.zeros(config.num_subheads)
     for tup in itertools.izip(*iterators):
         net.module.zero_grad()
 
@@ -269,43 +269,43 @@ def get_subhead_using_loss(config, dataloaders_head_B, net, sobel, lamb, compare
             x_outs = net(all_imgs, head=head)
             x_tf_outs = net(all_imgs_tf, head=head)
 
-        for i in xrange(config.num_sub_heads):
+        for i in xrange(config.num_subheads):
             loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=lamb)
-            loss_per_sub_head[i] += loss.item()
+            loss_per_subhead[i] += loss.item()
 
         if b_i % 100 == 0:
             print("at batch %d" % b_i)
             sys.stdout.flush()
         b_i += 1
 
-    best_sub_head_loss = np.argmin(loss_per_sub_head)
+    best_subhead_loss = np.argmin(loss_per_subhead)
 
     if compare:
-        print(loss_per_sub_head)
-        print("best sub_head by loss: %d" % best_sub_head_loss)
+        print(loss_per_subhead)
+        print("best subhead by loss: %d" % best_subhead_loss)
 
         best_epoch = np.argmax(np.array(config.epoch_acc))
-        if "best_train_sub_head" in config.epoch_stats[best_epoch]:
-            best_sub_head_eval = config.epoch_stats[best_epoch]["best_train_sub_head"]
+        if "best_train_subhead" in config.epoch_stats[best_epoch]:
+            best_subhead_eval = config.epoch_stats[best_epoch]["best_train_subhead"]
             test_accs = config.epoch_stats[best_epoch]["test_accs"]
         else:  # older config version
-            best_sub_head_eval = config.epoch_stats[best_epoch]["best_head"]
+            best_subhead_eval = config.epoch_stats[best_epoch]["best_head"]
             test_accs = config.epoch_stats[best_epoch]["all"]
 
-        print("best sub_head by eval: %d" % best_sub_head_eval)
+        print("best subhead by eval: %d" % best_subhead_eval)
 
         print("... loss select acc: %f, eval select acc: %f" %
-              (test_accs[best_sub_head_loss],
-               test_accs[best_sub_head_eval]))
+              (test_accs[best_subhead_loss],
+               test_accs[best_subhead_eval]))
 
     net.train()
 
-    return best_sub_head_loss
+    return best_subhead_loss
 
 
 def cluster_eval(config, net, mapping_assignment_dataloader,
                  mapping_test_dataloader, sobel,
-                 use_sub_head=None, print_stats=False):
+                 use_subhead=None, print_stats=False):
     if config.double_eval:
         # Pytorch's behaviour varies depending on whether .eval() is called or not
         # The effect is batchnorm updates if .eval() is not called
@@ -316,7 +316,7 @@ def cluster_eval(config, net, mapping_assignment_dataloader,
                                             mapping_assignment_dataloader=mapping_assignment_dataloader,
                                             mapping_test_dataloader=mapping_test_dataloader,
                                             sobel=sobel,
-                                            use_sub_head=use_sub_head)
+                                            use_subhead=use_subhead)
 
         if print_stats:
             print("double eval stats:")
@@ -331,7 +331,7 @@ def cluster_eval(config, net, mapping_assignment_dataloader,
                                        mapping_assignment_dataloader=mapping_assignment_dataloader,
                                        mapping_test_dataloader=mapping_test_dataloader,
                                        sobel=sobel,
-                                       use_sub_head=use_sub_head)
+                                       use_subhead=use_subhead)
     net.train()
 
     if print_stats:
@@ -363,7 +363,7 @@ def get_subhead_cluster_stats(config, net):
 
     _, train_accs = _get_assignment_data_matches(net, mapping_assignment_dl, config, sobel=config.sobel,
                                                  using_IR=False, get_data_fn=_clustering_get_data, verbose=0)
-    best_sub_head = np.argmax(train_accs)
+    best_subhead = np.argmax(train_accs)
     print("Best subhead determined")
 
     assert len(dataloader_list) == 1
@@ -388,19 +388,31 @@ def get_subhead_cluster_stats(config, net):
         cluster_stats = {k: Counter(v) for k, v in cluster_stats.items()}
         subhead_cluster_stats.append(cluster_stats)
 
-    with open("cluster_stats.json", "") as out_f:
-        json.dump({
-            "best_sub_head": best_sub_head,
-            "subhead_cluster_stats": subhead_cluster_stats
-        }, out_f)
+    stat_dict = {
+        "best_subhead": best_subhead,
+        "subhead_cluster_stats": subhead_cluster_stats
+    }
+    with open("cluster_stats.json", "w") as out_f:
+        json.dump(stat_dict, out_f)
 
-    return subhead_cluster_stats, best_sub_head
+    return stat_dict
 
 
-def plot_cluster_dist_per_class(config, subhead_cluster_stats):
+def highlight_best_subhead(best_subhead, fig, axs):
+    best_subhead_axis = axs[best_subhead, :]
+    for ax in best_subhead_axis:
+        bbox = ax.get_position()
+        rect = matplotlib.patches.Rectangle((0, bbox.y0), 1, bbox.height, color="#32cd3205", zorder=-1,
+                                            transform=fig.transFigure, clip_on=False)
+        ax.add_artist(rect)
+    for ax in best_subhead_axis.flat:
+        ax.patch.set_visible(False)
+
+
+def plot_cluster_dist_per_class(config, subhead_cluster_stats, best_subhead):
     # rearrange data structure
     print("Plotting cluster dist per class")
-    num_subheads = config.num_sub_heads
+    num_subheads = config.num_subheads
     permuted_subhead_cluster_stats = []
     for subhead_stats in subhead_cluster_stats:
         class_cluster_mapping = {}
@@ -425,16 +437,18 @@ def plot_cluster_dist_per_class(config, subhead_cluster_stats):
             relative_y = [float(s) / sum(y) for s in y]
             ax.set_title(class_name)
             ax.bar(x, relative_y)
+
     fig.tight_layout(pad=3.0, h_pad=4.0)
+    highlight_best_subhead(best_subhead, fig, axs)
     plt.savefig("cluster_dist_per_class.png")
 
 
-def plot_aligned_clusters(config, subhead_cluster_stats):
+def plot_aligned_clusters(config, subhead_cluster_stats, best_subhead):
     # Number of predicted samples per cluster
     print("Plotting aligned clusters")
     plt.clf()
     matplotlib.rcParams.update({'font.size': 22})
-    num_subheads = config.num_sub_heads
+    num_subheads = config.num_subheads
     max_num_clusters = config.output_ks[0]
     fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
                             figsize=(max_num_clusters * 4, num_subheads * 5))
@@ -452,16 +466,17 @@ def plot_aligned_clusters(config, subhead_cluster_stats):
             for tick in ax.get_xticklabels():
                 tick.set_rotation(90)
     fig.tight_layout(pad=1.5)
+    highlight_best_subhead(best_subhead, fig, axs)
     plt.savefig("cluster_bars_aligned.png")
 
 
-def plot_unaligned_clusters(config, subhead_cluster_stats):
+def plot_unaligned_clusters(config, subhead_cluster_stats, best_subhead):
     # working code for unaligned clusters
     print("Plotting unaligned clusters")
     plt.clf()
     matplotlib.rcParams.update({'font.size': 22})
     max_num_clusters = max([len(s) for s in subhead_cluster_stats])
-    num_subheads = config.num_sub_heads
+    num_subheads = config.num_subheads
     fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
                             figsize=(max_num_clusters * 3, num_subheads * 5))
     for sh_idx, subhead_stats in enumerate(subhead_cluster_stats):
@@ -477,6 +492,7 @@ def plot_unaligned_clusters(config, subhead_cluster_stats):
             for tick in ax.get_xticklabels():
                 tick.set_rotation(90)
     fig.tight_layout(pad=3.0, h_pad=4.0)
+    highlight_best_subhead(best_subhead, fig, axs)
     plt.savefig("cluster_bars_unaligned.png")
 
 
@@ -489,10 +505,12 @@ def plot_cluster_stats(config, net):
     #       - plot PCA of all clusters in single plot - might be messy because there are 35 clusters
     #   - double check data gathering
 
-    subhead_cluster_stats, best_sub_head = get_subhead_cluster_stats(config, net)
+    stat_dict = get_subhead_cluster_stats(config, net)
     # with open("cluster_stats.json") as csf:
-    #     subhead_cluster_stats = json.load(csf)
+    #     stat_dict = json.load(csf)
 
-    plot_cluster_dist_per_class(config, subhead_cluster_stats)
-    plot_aligned_clusters(config, subhead_cluster_stats)
-    plot_unaligned_clusters(config, subhead_cluster_stats)
+    best_subhead = stat_dict["best_subhead"]
+    subhead_cluster_stats = stat_dict["subhead_cluster_stats"]
+    plot_cluster_dist_per_class(config, subhead_cluster_stats, best_subhead)
+    plot_aligned_clusters(config, subhead_cluster_stats, best_subhead)
+    plot_unaligned_clusters(config, subhead_cluster_stats, best_subhead)

@@ -63,17 +63,17 @@ best_i = np.argmax(np.array(config.epoch_acc))
 stats_dict = config.epoch_stats[best_i]
 
 print(stats_dict)
-if "best_train_sub_head" in stats_dict:
-  best_head = stats_dict["best_train_sub_head"]
-  print("best_train_sub_head: %d" % best_head)
-  best_match = stats_dict["best_train_sub_head_match"]  # pred -> target
+if "best_train_subhead" in stats_dict:
+  best_head = stats_dict["best_train_subhead"]
+  print("best_train_subhead: %d" % best_head)
+  best_match = stats_dict["best_train_subhead_match"]  # pred -> target
 
 if "best_head" in stats_dict:
   best_head = stats_dict["best_head"]
   print("best_head: %d" % best_head)
   best_match = stats_dict["best_head_match"]
 
-assert (not ("best_train_sub_head" in stats_dict and "best_head" in stats_dict))
+assert (not ("best_train_subhead" in stats_dict and "best_head" in stats_dict))
 
 best_match_dict = {}
 for pred_i, target_i in best_match:

@@ -31,7 +31,7 @@ class ClusterNet6cTwoHeadHead(nn.Module):
             raise NotImplementedError("input images have to be of size 24x24, 64x64 or 64x216")
 
         if not semisup:
-            self.num_sub_heads = config.num_sub_heads
+            self.num_subheads = config.num_subheads
 
             # is default (used for iid loss)
             # use multi heads
@@ -41,7 +41,7 @@ class ClusterNet6cTwoHeadHead(nn.Module):
                     nn.Linear(num_features * features_sp_size[0] * features_sp_size[1], output_k),
                     nn.Softmax(dim=1)
                 )
-                for _ in xrange(self.num_sub_heads)
+                for _ in xrange(self.num_subheads)
             ])
         else:
             self.head = nn.Linear(num_features * features_sp_size[0] * features_sp_size[1], output_k)
@@ -50,7 +50,7 @@ class ClusterNet6cTwoHeadHead(nn.Module):
 
         if not self.semisup:
             results = []
-            for i in xrange(self.num_sub_heads):
+            for i in xrange(self.num_subheads):
                 if kmeans_use_features:
                     results.append(x)  # duplicates
                 else:

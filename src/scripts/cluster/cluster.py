@@ -47,7 +47,7 @@ def parse_config():
 
     parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
     parser.add_argument("--num_dataloaders", type=int, default=3)
-    parser.add_argument("--num_sub_heads", type=int, default=5)  # per head...
+    parser.add_argument("--num_subheads", type=int, default=5)  # per head...
 
     parser.add_argument("--leave_out_unlabelled", default=False, action="store_true")
 
@@ -63,8 +63,8 @@ def parse_config():
     parser.add_argument("--batchnorm_track", default=False, action="store_true",
                         help="tracks batchnorm running stats")
     parser.add_argument("--save_progression", default=False, action="store_true")
-    parser.add_argument("--select_sub_head_on_loss", default=False, action="store_true")  # TODO?
-    parser.add_argument("--evaluate_clusters", default=False, action="store_true")
+    parser.add_argument("--select_subhead_on_loss", default=False, action="store_true")  # TODO?
+    parser.add_argument("--plot_cluster_stats", default=False, action="store_true")
 
     # transforms
     parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true",
@@ -256,16 +256,16 @@ def train(config, net, optimiser, render_count=-1):
         config.epoch_loss = [[] for _ in range(num_heads)]
         config.epoch_loss_no_lamb = [[] for _ in range(num_heads)]
 
-        sub_head = None
-        if config.select_sub_head_on_loss:
+        subhead = None
+        if config.select_subhead_on_loss:
             assert num_heads == 2
-            sub_head = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
+            subhead = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
 
         _ = cluster_eval(config, net,
                          mapping_assignment_dataloader=mapping_assignment_dataloader,
                          mapping_test_dataloader=mapping_test_dataloader,
                          sobel=config.sobel,
-                         use_sub_head=sub_head)
+                         use_subhead=subhead)
 
         print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
         if config.double_eval:
@@ -301,7 +301,7 @@ def train(config, net, optimiser, render_count=-1):
             epoch_loss = config.epoch_loss[head_idx]
             epoch_loss_no_lamb = config.epoch_loss_no_lamb[head_idx]
 
-            avg_loss = 0.  # over heads and head_epochs (and sub_heads)
+            avg_loss = 0.  # over heads and head_epochs (and subheads)
             avg_loss_no_lamb = 0.
             avg_loss_count = 0
 
@@ -348,9 +348,9 @@ def train(config, net, optimiser, render_count=-1):
                     x_outs = net(all_imgs, head_idx=head_idx)
                     x_tf_outs = net(all_imgs_tf, head_idx=head_idx)
 
-                    avg_loss_batch = None  # avg over the sub_heads
+                    avg_loss_batch = None  # avg over the subheads
                     avg_loss_no_lamb_batch = None
-                    for i in xrange(config.num_sub_heads):
+                    for i in xrange(config.num_subheads):
                         loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=config.lamb)
                         if avg_loss_batch is None:
                             avg_loss_batch = loss
@@ -359,8 +359,8 @@ def train(config, net, optimiser, render_count=-1):
                             avg_loss_batch += loss
                             avg_loss_no_lamb_batch += loss_no_lamb
 
-                    avg_loss_batch /= config.num_sub_heads
-                    avg_loss_no_lamb_batch /= config.num_sub_heads
+                    avg_loss_batch /= config.num_subheads
+                    avg_loss_no_lamb_batch /= config.num_subheads
 
                     if ((b_i % 100) == 0) or (e_i == next_epoch and b_i < 10):
                         print("Model ind %d epoch %d head %s head_i_epoch %d batch %d: avg loss %f avg loss no lamb %f "
@@ -398,17 +398,17 @@ def train(config, net, optimiser, render_count=-1):
 
         # Eval -----------------------------------------------------------------------
 
-        # Can also pick the subhead using the evaluation process (to do this, set use_sub_head=None)
-        sub_head = None
-        if config.select_sub_head_on_loss:
+        # Can also pick the subhead using the evaluation process (to do this, set use_subhead=None)
+        subhead = None
+        if config.select_subhead_on_loss:
             assert num_heads == 2
-            sub_head = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
+            subhead = get_subhead_using_loss(config, dataloader_list[1], net, sobel=config.sobel, lamb=config.lamb)
 
         is_best = cluster_eval(config, net,
                                mapping_assignment_dataloader=mapping_assignment_dataloader,
                                mapping_test_dataloader=mapping_test_dataloader,
                                sobel=config.sobel,
-                               use_sub_head=sub_head)
+                               use_subhead=subhead)
 
         print("Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
         if config.double_eval:
@@ -482,7 +482,9 @@ def train(config, net, optimiser, render_count=-1):
 def main():
     config = parse_config()
     config, net, optimiser = setup(config)
-    if config.evaluate_clusters:
+    # net = None
+    # optimiser = None
+    if config.plot_cluster_stats:
         plot_cluster_stats(config, net)
     else:
         train(config, net, optimiser)

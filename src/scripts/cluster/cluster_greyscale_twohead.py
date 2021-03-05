@@ -50,7 +50,7 @@ parser.add_argument("--lr_mult", type=float, default=0.1)
 parser.add_argument("--num_epochs", type=int, default=1000)
 parser.add_argument("--batch_sz", type=int, default=240)  # num pairs
 parser.add_argument("--num_dataloaders", type=int, default=3)
-parser.add_argument("--num_sub_heads", type=int, default=5)
+parser.add_argument("--num_subheads", type=int, default=5)
 parser.add_argument("--out_root", type=str)
 parser.add_argument("--restart", dest="restart", default=False,
                     action="store_true")
@@ -68,7 +68,7 @@ parser.add_argument("--head_B_epochs", type=int, default=1)
 parser.add_argument("--batchnorm_track", default=False, action="store_true",
                     help="tracks the running stats of the batchnorm layers")
 parser.add_argument("--save_progression", default=False, action="store_true")
-parser.add_argument("--select_sub_head_on_loss", default=False,
+parser.add_argument("--select_subhead_on_loss", default=False,
                     action="store_true")
 # transforms
 parser.add_argument("--demean", dest="demean", default=False,
@@ -241,15 +241,15 @@ def train(render_count=-1):
         config.epoch_loss_head_B = []
         config.epoch_loss_no_lamb_head_B = []
 
-        sub_head = None
-        if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net,
+        subhead = None
+        if config.select_subhead_on_loss:
+            subhead = get_subhead_using_loss(config, dataloaders_head_B, net,
                                               sobel=False, lamb=config.lamb_B)
         _ = cluster_eval(config, net,
                          mapping_assignment_dataloader=mapping_assignment_dataloader,
                          mapping_test_dataloader=mapping_test_dataloader,
                          sobel=False,
-                         use_sub_head=sub_head)
+                         use_subhead=subhead)
 
         print(
             "Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))
@@ -293,7 +293,7 @@ def train(render_count=-1):
                 epoch_loss_no_lamb = config.epoch_loss_no_lamb_head_B
                 lamb = config.lamb_B
 
-            avg_loss = 0.  # over heads and head_epochs (and sub_heads)
+            avg_loss = 0.  # over heads and head_epochs (and subheads)
             avg_loss_no_lamb = 0.
             avg_loss_count = 0
 
@@ -339,7 +339,7 @@ def train(render_count=-1):
 
                     avg_loss_batch = None  # avg over the heads
                     avg_loss_no_lamb_batch = None
-                    for i in xrange(config.num_sub_heads):
+                    for i in xrange(config.num_subheads):
                         loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=lamb)
                         if avg_loss_batch is None:
                             avg_loss_batch = loss
@@ -348,8 +348,8 @@ def train(render_count=-1):
                             avg_loss_batch += loss
                             avg_loss_no_lamb_batch += loss_no_lamb
 
-                    avg_loss_batch /= config.num_sub_heads
-                    avg_loss_no_lamb_batch /= config.num_sub_heads
+                    avg_loss_batch /= config.num_subheads
+                    avg_loss_no_lamb_batch /= config.num_subheads
 
                     if ((b_i % 100) == 0) or (e_i == next_epoch):
                         print(
@@ -389,15 +389,15 @@ def train(render_count=-1):
         # Eval
         # -----------------------------------------------------------------------
 
-        sub_head = None
-        if config.select_sub_head_on_loss:
-            sub_head = get_subhead_using_loss(config, dataloaders_head_B, net,
+        subhead = None
+        if config.select_subhead_on_loss:
+            subhead = get_subhead_using_loss(config, dataloaders_head_B, net,
                                               sobel=False, lamb=config.lamb_B)
         is_best = cluster_eval(config, net,
                                mapping_assignment_dataloader=mapping_assignment_dataloader,
                                mapping_test_dataloader=mapping_test_dataloader,
                                sobel=False,
-                               use_sub_head=sub_head)
+                               use_subhead=subhead)
 
         print(
             "Pre: time %s: \n %s" % (datetime.now(), nice(config.epoch_stats[-1])))

@@ -69,15 +69,15 @@ class ClusterNet5gHead(nn.Module):
         assert len(config.output_ks) == 1
 
         self.batchnorm_track = config.batchnorm_track
-        self.num_sub_heads = config.num_sub_heads
+        self.num_subheads = config.num_subheads
         self.heads = nn.ModuleList([nn.Sequential(
             nn.Linear(num_features, config.output_ks[0]),
-            nn.Softmax(dim=1)) for _ in xrange(self.num_sub_heads)
+            nn.Softmax(dim=1)) for _ in xrange(self.num_subheads)
         ])
 
     def forward(self, x, kmeans_use_features=False):
         results = []
-        for i in xrange(self.num_sub_heads):
+        for i in xrange(self.num_subheads):
             if kmeans_use_features:
                 results.append(x)  # duplicates
             else:

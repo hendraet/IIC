@@ -51,7 +51,7 @@ parser.add_argument("--lr_mult", type=float, default=0.1)
 parser.add_argument("--num_epochs", type=int, default=1000)
 parser.add_argument("--batch_sz", type=int, default=240)  # num pairs
 parser.add_argument("--num_dataloaders", type=int, default=3)
-parser.add_argument("--num_sub_heads", type=int, default=5)
+parser.add_argument("--num_subheads", type=int, default=5)
 
 parser.add_argument("--out_root", type=str,
                     default="/scratch/shared/slow/xuji/iid_private")
@@ -254,7 +254,7 @@ for e_i in xrange(next_epoch, config.num_epochs):
 
     avg_loss_batch = None  # avg over the heads
     avg_loss_no_lamb_batch = None
-    for i in xrange(config.num_sub_heads):
+    for i in xrange(config.num_subheads):
       loss, loss_no_lamb = IID_loss(x_outs[i], x_tf_outs[i], lamb=config.lamb)
       if avg_loss_batch is None:
         avg_loss_batch = loss
@@ -263,8 +263,8 @@ for e_i in xrange(next_epoch, config.num_epochs):
         avg_loss_batch += loss
         avg_loss_no_lamb_batch += loss_no_lamb
 
-    avg_loss_batch /= config.num_sub_heads
-    avg_loss_no_lamb_batch /= config.num_sub_heads
+    avg_loss_batch /= config.num_subheads
+    avg_loss_no_lamb_batch /= config.num_subheads
 
     if ((b_i % 100) == 0) or (e_i == next_epoch):
       print("Model ind %d epoch %d batch: %d avg loss %f avg loss no lamb %f "

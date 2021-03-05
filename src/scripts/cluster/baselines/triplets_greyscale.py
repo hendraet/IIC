@@ -194,7 +194,7 @@ for e_i in xrange(next_epoch, config.num_epochs):
   if e_i in config.lr_schedule:
     optimiser = update_lr(optimiser, lr_mult=config.lr_mult)
 
-  avg_loss = 0.  # over heads and head_epochs (and sub_heads)
+  avg_loss = 0.  # over heads and head_epochs (and subheads)
   avg_loss_count = 0
 
   sys.stdout.flush()

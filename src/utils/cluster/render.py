@@ -34,13 +34,13 @@ def save_progress(config, net, mapping_assignment_dataloader, mapping_test_datal
                                                            using_IR=using_IR,
                                                            get_data_fn=_clustering_get_data)
 
-    best_sub_head = np.argmax(train_accs)
-    match = all_matches[best_sub_head]
+    best_subhead = np.argmax(train_accs)
+    match = all_matches[best_subhead]
 
     # get clustering results
     flat_predss_all, flat_targets_all, soft_predss_all = \
         _clustering_get_data(config, net, mapping_test_dataloader, sobel=sobel, using_IR=using_IR, get_soft=True)
-    soft_preds = soft_predss_all[best_sub_head]
+    soft_preds = soft_predss_all[best_subhead]
 
     num_samples, C = soft_preds.shape
     assert (C == config.gt_k)
