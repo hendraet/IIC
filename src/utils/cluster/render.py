@@ -14,8 +14,8 @@ GT_TO_ORDER = [2, 5, 3, 8, 6, 7, 0, 9, 1, 4]
 
 def save_progress(config, net, mapping_assignment_dataloader, mapping_test_dataloader, index, sobel, render_count):
     """
-  Draws all predictions using convex combination.
-  """
+    Draws all predictions using convex combination.
+    """
 
     # Using this for MNIST
     if sobel:

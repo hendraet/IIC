@@ -11,11 +11,14 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.nn import DataParallel
+from torchvision import transforms
 
 from .IID_losses import IID_loss
 from .data import create_handwriting_dataloaders
 from .eval_metrics import _hungarian_match, _original_match, _acc
 from .transforms import sobel_process
+from ...archs import ClusterNet5g
 
 
 def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, get_soft=False, verbose=None):
@@ -348,7 +351,26 @@ def cluster_eval(config, net, mapping_assignment_dataloader,
         return is_best
 
 
-def get_subhead_cluster_stats(config, net):
+################################### Analysis of clustering results ####################################################
+def _clustering_get_embeddings(config, net, dataloader, sobel=False):
+    """
+    Returns embeddings representing the samples
+    """
+    net_trunk = net.module.trunk
+    embeddings = []
+    for b_i, batch in enumerate(dataloader):
+        imgs = batch[0].cuda()
+        if sobel:
+            imgs = sobel_process(imgs, config.include_rgb, using_IR=False)
+        with torch.no_grad():
+            x_outs = net_trunk(imgs)
+        embeddings.append(x_outs)
+
+    embeddings = torch.cat(embeddings, dim=0)
+    return embeddings
+
+
+def get_subhead_cluster_stats(config, net, save_results=False):
     net.eval()
 
     # TODO: magic strings
@@ -373,6 +395,15 @@ def get_subhead_cluster_stats(config, net):
                                                              using_IR=False, verbose=0)
     print("Data predicted")
 
+    # TODO: find out how to match path to tensor
+    # img_paths = [s["path"] for s in dataloader.dataset.data]
+    # for batch in dataloader:
+    #     transforms.ToPILImage()(batch[0][0]).save("tmp1.png")
+    #     transforms.ToPILImage()(batch[0][-1]).save("tmp2.png")
+    #     break
+    # print(img_paths[0])
+    # print(img_paths[511])
+
     num_samples = len(flat_targets_all)
     assert all([len(p) == num_samples for p in flat_predss_all])
     subhead_cluster_stats = []
@@ -392,10 +423,16 @@ def get_subhead_cluster_stats(config, net):
         "best_subhead": best_subhead,
         "subhead_cluster_stats": subhead_cluster_stats
     }
-    with open("cluster_stats.json", "w") as out_f:
-        json.dump(stat_dict, out_f)
+    embeddings = _clustering_get_embeddings(config, net, dataloader, sobel=config.sobel)
+    print("Embeddings created")
 
-    return stat_dict
+    if save_results:
+        with open("cluster_stats.json", "w") as out_f:
+            json.dump(stat_dict, out_f)
+        # TODO: save tensors
+        torch.save(embeddings, "embeddings.pt")
+
+    return stat_dict, embeddings
 
 
 def highlight_best_subhead(best_subhead, fig, axs):
@@ -434,7 +471,7 @@ def plot_cluster_dist_per_class(config, subhead_cluster_stats, best_subhead):
             class_stats = subhead_stats[class_name]
             x = [i for i in range(max_num_clusters)]
             y = [class_stats[str(i)] if str(i) in class_stats else 0.0 for i in range(max_num_clusters)]
-            relative_y = [float(s) / sum(y) for s in y]
+            relative_y = [float(s) / sum(y) for s in y]  # TODO: check why there can be a division by 0
             ax.set_title(class_name)
             ax.bar(x, relative_y)
 
@@ -503,9 +540,11 @@ def plot_cluster_stats(config, net):
     #       - analyse individual clusters and create class distribution (rank them based on purity)
     #       - maybe plot PCA of individual clusters separately
     #       - plot PCA of all clusters in single plot - might be messy because there are 35 clusters
-    #   - double check data gathering
+    #   - double check data gatherin
+    assert isinstance(net, ClusterNet5g) or ((isinstance(net, DataParallel)) and isinstance(net.module, ClusterNet5g)), \
+        "This code was only tested for ClusterNet5g"
 
-    stat_dict = get_subhead_cluster_stats(config, net)
+    stat_dict, embeddings = get_subhead_cluster_stats(config, net, save_results=True)
     # with open("cluster_stats.json") as csf:
     #     stat_dict = json.load(csf)
 

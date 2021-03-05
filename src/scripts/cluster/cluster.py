@@ -47,7 +47,7 @@ def parse_config():
 
     parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
     parser.add_argument("--num_dataloaders", type=int, default=3)
-    parser.add_argument("--num_subheads", type=int, default=5)  # per head...
+    parser.add_argument("--num_subheads", "--num_sub_heads", type=int, default=5, dest="num_subheads")  # per head...
 
     parser.add_argument("--leave_out_unlabelled", default=False, action="store_true")
 
@@ -143,10 +143,10 @@ def setup(config):
         config.mapping_assignment_partitions = [True, False]
         config.mapping_test_partitions = [True, False]
 
-    config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     assert (config.batch_sz % config.num_dataloaders == 0)
     config.dataloader_batch_sz = config.batch_sz / config.num_dataloaders
 
+    config.out_dir = os.path.join(config.out_root, str(config.model_ind))
     if not os.path.exists(config.out_dir):
         os.makedirs(config.out_dir)
 
@@ -165,6 +165,8 @@ def setup(config):
         print("Loading restarting config from: %s" % reloaded_config_path)
         with open(reloaded_config_path, "rb") as config_f:
             config = pickle.load(config_f)
+        if hasattr(config, "num_sub_heads"):
+            config.num_subheads = config.num_sub_heads
         assert given_config.test_code or (config.model_ind == given_config.model_ind)
         config.restart = True
         config.restart_from_best = given_config.restart_from_best
@@ -189,7 +191,11 @@ def setup(config):
             config.batchnorm_track = True  # before we added in false option
 
         config.plot_cluster_stats = given_config.plot_cluster_stats
-
+        if hasattr(given_config, "batch_sz") and hasattr(given_config, "num_dataloaders"):
+            assert (given_config.batch_sz % given_config.num_dataloaders == 0)
+            config.batch_sz =given_config.batch_sz
+            config.num_dataloaders = given_config.num_dataloaders
+            config.dataloader_batch_sz = config.batch_sz / config.num_dataloaders
     else:
         print("Config: %s" % config_to_str(config))
         net_name = None
@@ -213,8 +219,8 @@ def setup(config):
     return config, net, optimiser
 
 
-# TODO: center crop ok or does it remove too much information if text is aligned left
 def train(config, net, optimiser, render_count=-1):
+    # TODO: center crop ok or does it remove too much information if text is aligned left
     dataloader_list, mapping_assignment_dataloader, mapping_test_dataloader = get_dataloader_list(config)
 
     num_heads = len(config.output_ks)

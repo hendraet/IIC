@@ -50,7 +50,7 @@ parser.add_argument("--lr_mult", type=float, default=0.1)
 parser.add_argument("--num_epochs", type=int, default=1000)
 parser.add_argument("--batch_sz", type=int, required=True)  # num pairs
 parser.add_argument("--num_dataloaders", type=int, default=3)
-parser.add_argument("--num_subheads", type=int, default=5)  # per head...
+parser.add_argument("--num_subheads", "--num_sub_heads", type=int, default=5, dest="num_subheads")  # per head...
 
 parser.add_argument("--out_root", type=str)
 parser.add_argument("--restart", dest="restart", default=False,
