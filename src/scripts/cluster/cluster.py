@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import src.archs as archs
 from src.utils.cluster.general import config_to_str, get_opt, update_lr, nice
 from src.utils.cluster.transforms import sobel_process
-from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss, evaluate_clusters
+from src.utils.cluster.cluster_eval import cluster_eval, get_subhead_using_loss, plot_cluster_stats
 from src.utils.cluster.data import get_dataloader_list
 from src.utils.cluster.IID_losses import IID_loss
 
@@ -106,7 +106,7 @@ def parse_config():
     elif len(config.input_sz) > 2:
         config.input_sz = config.input_sz[:2]
 
-    if config.evaluate_clusters:
+    if config.plot_cluster_stats:
         config.num_dataloaders = 1
         if not config.restart:
             warn("Evaluating clusters on untrained model. Use --restart to reuse a trained model")
@@ -188,7 +188,7 @@ def setup(config):
         if not hasattr(config, "batchnorm_track"):
             config.batchnorm_track = True  # before we added in false option
 
-        config.evaluate_clusters = given_config.evaluate_clusters
+        config.plot_cluster_stats = given_config.plot_cluster_stats
 
     else:
         print("Config: %s" % config_to_str(config))
@@ -481,11 +481,9 @@ def train(config, net, optimiser, render_count=-1):
 
 def main():
     config = parse_config()
-    # config, net, optimiser = setup(config)
-    net = None  # TODO
-    optimiser = None  # TODO
+    config, net, optimiser = setup(config)
     if config.evaluate_clusters:
-        evaluate_clusters(config, net)
+        plot_cluster_stats(config, net)
     else:
         train(config, net, optimiser)
 

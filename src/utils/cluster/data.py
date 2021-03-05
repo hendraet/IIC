@@ -548,14 +548,14 @@ def _create_hw_dataloaders(config, dataset_descriptions, dataset_root, tf1, tf2)
         shuffle=False,
         sampler=DeterministicRandomSampler(dataset),
         num_workers=0,
-        drop_last=False)]
+        drop_last=True)]
     dataloaders += [torch.utils.data.DataLoader(
         datasets_tf[i],
         batch_size=config.dataloader_batch_sz,
         shuffle=False,
         sampler=DeterministicRandomSampler(datasets_tf[i]),
         num_workers=0,
-        drop_last=False) for i in range(config.num_dataloaders - 1)]
+        drop_last=True) for i in range(config.num_dataloaders - 1)]
 
     return dataloaders
 
@@ -573,8 +573,6 @@ def _create_hw_mapping_loader(config, dataset_descriptions, dataset_root, tf):
     return mapping_dataloader
 
 
-# TODO: unlabelled case: dataloaders have to include unlabelled stuff and mapping assignment loader hast to be plain
-#   train thingy
 def create_handwriting_dataloaders(config, train_json_path, val_json_path, test_json_path, unlabelled_json_path="",
                                    twohead=False):
     assert config.batchnorm_track  # recommended (for test time invariance to batch size)
