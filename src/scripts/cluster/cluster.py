@@ -65,6 +65,9 @@ def parse_config():
     parser.add_argument("--save_progression", default=False, action="store_true")
     parser.add_argument("--select_subhead_on_loss", default=False, action="store_true")  # TODO?
     parser.add_argument("--plot_cluster_stats", default=False, action="store_true")
+    parser.add_argument("--result_dir", type=str, default="",
+                        help="path to the directory where evaluation images should be saved to if --plot_cluster_stats"
+                             "is used")
 
     # transforms
     parser.add_argument("--mix_train", dest="mix_train", default=False, action="store_true",
@@ -99,6 +102,7 @@ def parse_config():
     parser.add_argument("--cutout", default=False, action="store_true")
     parser.add_argument("--cutout_p", type=float, default=0.5)
     parser.add_argument("--cutout_max_box", type=float, default=0.5)
+
 
     config = parser.parse_args()
     if len(config.input_sz) == 1:
@@ -181,6 +185,7 @@ def setup(config):
         config.num_epochs = given_config.num_epochs
         config.lr_schedule = given_config.lr_schedule
         config.save_progression = given_config.save_progression
+        config.result_dir = given_config.result_dir
 
         if not hasattr(config, "cutout"):
             config.cutout = False
@@ -488,8 +493,6 @@ def train(config, net, optimiser, render_count=-1):
 def main():
     config = parse_config()
     config, net, optimiser = setup(config)
-    # net = None
-    # optimiser = None
     if config.plot_cluster_stats:
         plot_cluster_stats(config, net)
     else:

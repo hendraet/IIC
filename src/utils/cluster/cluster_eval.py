@@ -7,17 +7,15 @@ import sys
 from collections import Counter
 from datetime import datetime
 
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.nn import DataParallel
-from torchvision import transforms
 
 from .IID_losses import IID_loss
-from .data import create_handwriting_dataloaders
+from .data import HandwritingDataset
 from .eval_metrics import _hungarian_match, _original_match, _acc
-from .transforms import sobel_process
+from .plot_utils import plot_cluster_dist_per_class, plot_aligned_clusters, plot_unaligned_clusters, plot_clusters
+from .transforms import sobel_process, sobel_make_transforms
 from ...archs import ClusterNet5g
 
 
@@ -352,6 +350,25 @@ def cluster_eval(config, net, mapping_assignment_dataloader,
 
 
 ################################### Analysis of clustering results ####################################################
+def get_eval_dataloaders(config):
+    train_json_path = os.path.join("train", config.dataset + "_train.json")
+    unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled_labelled.json")
+    train_files = [train_json_path, unlabelled_json_path]
+    val_json_path = os.path.join("val", config.dataset + "_val.json")
+    actual_dataset_root = os.path.join(config.dataset_root, config.dataset)
+
+    assert config.sobel
+    tf1, tf2, tf3 = sobel_make_transforms(config)
+
+    dataset = HandwritingDataset(train_files, actual_dataset_root, tf1)
+    train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.dataloader_batch_sz, shuffle=False,
+                                             num_workers=0, drop_last=True)
+    mapping_dataset = HandwritingDataset([val_json_path], actual_dataset_root, tf3)
+    val_dataloader = torch.utils.data.DataLoader(mapping_dataset, batch_size=config.batch_sz, shuffle=False,
+                                                     num_workers=0, drop_last=False)
+    return train_dataloader, val_dataloader
+
+
 def _clustering_get_embeddings(config, net, dataloader, sobel=False):
     """
     Returns embeddings representing the samples
@@ -374,39 +391,23 @@ def get_subhead_cluster_stats(config, net, save_results=False):
     net.eval()
 
     # TODO: magic strings
-    train_json_path = os.path.join("train", config.dataset + "_train.json")
-    test_json_path = os.path.join("test", config.dataset + "_test.json")
-    val_json_path = os.path.join("val", config.dataset + "_val.json")
-    unlabelled_json_path = os.path.join("unlabelled", config.dataset + "_unlabelled_labelled.json")
-    dataloader_list, mapping_assignment_dl, _ = create_handwriting_dataloaders(config, train_json_path, val_json_path,
-                                                                               test_json_path, unlabelled_json_path,
-                                                                               twohead=False)
-    print("Dataloaders created")
+    print("Creating dataloader...")
+    train_dataloader, val_dataloader = get_eval_dataloaders(config)
 
-    _, train_accs = _get_assignment_data_matches(net, mapping_assignment_dl, config, sobel=config.sobel,
+    print("Getting best subhead...")
+    _, train_accs = _get_assignment_data_matches(net, val_dataloader, config, sobel=config.sobel,
                                                  using_IR=False, get_data_fn=_clustering_get_data, verbose=0)
     best_subhead = np.argmax(train_accs)
-    print("Best subhead determined")
 
-    assert len(dataloader_list) == 1
-    dataloader = dataloader_list[0][0]  # should be fine since all dataloaders contain the same data
-    classes = dataloader.dataset.get_classes()
-    flat_predss_all, flat_targets_all = _clustering_get_data(config, net, dataloader, sobel=config.sobel,
+    print("Predicting samples...")
+    classes = train_dataloader.dataset.get_classes()
+    flat_predss_all, flat_targets_all = _clustering_get_data(config, net, train_dataloader, sobel=config.sobel,
                                                              using_IR=False, verbose=0)
-    print("Data predicted")
-
-    # TODO: find out how to match path to tensor
-    # img_paths = [s["path"] for s in dataloader.dataset.data]
-    # for batch in dataloader:
-    #     transforms.ToPILImage()(batch[0][0]).save("tmp1.png")
-    #     transforms.ToPILImage()(batch[0][-1]).save("tmp2.png")
-    #     break
-    # print(img_paths[0])
-    # print(img_paths[511])
 
     num_samples = len(flat_targets_all)
     assert all([len(p) == num_samples for p in flat_predss_all])
     subhead_cluster_stats = []
+    sample_info = train_dataloader.dataset.data[:num_samples]
     for sh_idx, subhead_prediction in enumerate(flat_predss_all):
         print("Processing subhead", sh_idx)
         cluster_stats = {}
@@ -416,6 +417,10 @@ def get_subhead_cluster_stats(config, net, save_results=False):
             if cluster_id not in cluster_stats:
                 cluster_stats[cluster_id] = []
             cluster_stats[cluster_id].append(target)
+
+            if sh_idx == best_subhead:
+                sample_info[i]["prediction"] = cluster_id
+
         cluster_stats = {k: Counter(v) for k, v in cluster_stats.items()}
         subhead_cluster_stats.append(cluster_stats)
 
@@ -423,114 +428,19 @@ def get_subhead_cluster_stats(config, net, save_results=False):
         "best_subhead": best_subhead,
         "subhead_cluster_stats": subhead_cluster_stats
     }
-    embeddings = _clustering_get_embeddings(config, net, dataloader, sobel=config.sobel)
-    print("Embeddings created")
+    print("Creating embeddings...")
+    # Embeddings are independent of subhead
+    embeddings = _clustering_get_embeddings(config, net, train_dataloader, sobel=config.sobel)
 
+    print("Saving results...")
     if save_results:
-        with open("cluster_stats.json", "w") as out_f:
+        with open(os.path.join(config.result_dir, "cluster_stats.json"), "w") as out_f:
             json.dump(stat_dict, out_f)
-        # TODO: save tensors
-        torch.save(embeddings, "embeddings.pt")
+        torch.save(embeddings, os.path.join(config.result_dir, "embeddings.pt"))
+        with open(os.path.join(config.result_dir, "sample_infos.json"), "w") as out_f:
+            json.dump(sample_info, out_f)
 
-    return stat_dict, embeddings
-
-
-def highlight_best_subhead(best_subhead, fig, axs):
-    best_subhead_axis = axs[best_subhead, :]
-    for ax in best_subhead_axis:
-        bbox = ax.get_position()
-        rect = matplotlib.patches.Rectangle((0, bbox.y0), 1, bbox.height, color="#32cd3205", zorder=-1,
-                                            transform=fig.transFigure, clip_on=False)
-        ax.add_artist(rect)
-    for ax in best_subhead_axis.flat:
-        ax.patch.set_visible(False)
-
-
-def plot_cluster_dist_per_class(config, subhead_cluster_stats, best_subhead):
-    # rearrange data structure
-    print("Plotting cluster dist per class")
-    num_subheads = config.num_subheads
-    permuted_subhead_cluster_stats = []
-    for subhead_stats in subhead_cluster_stats:
-        class_cluster_mapping = {}
-        for cluster_id in subhead_stats:
-            for class_name, num_samples in subhead_stats[cluster_id].items():
-                if class_name not in class_cluster_mapping:
-                    class_cluster_mapping[class_name] = {}
-                class_cluster_mapping[class_name][cluster_id] = num_samples
-        permuted_subhead_cluster_stats.append(class_cluster_mapping)
-
-    # plotting
-    matplotlib.rcParams.update({'font.size': 22})
-    max_num_clusters = config.output_ks[0]
-    plt.clf()
-    num_classes = max(len(d) for d in permuted_subhead_cluster_stats)  # TODO: might not work in all cases
-    fig, axs = plt.subplots(num_subheads, num_classes, sharey="all", figsize=(num_classes * 7, num_subheads * 5))
-    for sh_idx, subhead_stats in enumerate(permuted_subhead_cluster_stats):
-        for class_name, ax in zip(sorted(subhead_stats.keys()), axs[sh_idx]):
-            class_stats = subhead_stats[class_name]
-            x = [i for i in range(max_num_clusters)]
-            y = [class_stats[str(i)] if str(i) in class_stats else 0.0 for i in range(max_num_clusters)]
-            relative_y = [float(s) / sum(y) for s in y]  # TODO: check why there can be a division by 0
-            ax.set_title(class_name)
-            ax.bar(x, relative_y)
-
-    fig.tight_layout(pad=3.0, h_pad=4.0)
-    highlight_best_subhead(best_subhead, fig, axs)
-    plt.savefig("cluster_dist_per_class.png")
-
-
-def plot_aligned_clusters(config, subhead_cluster_stats, best_subhead):
-    # Number of predicted samples per cluster
-    print("Plotting aligned clusters")
-    plt.clf()
-    matplotlib.rcParams.update({'font.size': 22})
-    num_subheads = config.num_subheads
-    max_num_clusters = config.output_ks[0]
-    fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
-                            figsize=(max_num_clusters * 4, num_subheads * 5))
-    for sh_idx, subhead_stats in enumerate(subhead_cluster_stats):
-        for cluster_id in sorted(subhead_stats.keys(), key=int):
-            items = list(subhead_stats[cluster_id].items())
-            x, y = zip(*sorted(items, key=lambda x: x[0]))
-            relative_y = [float(s) / sum(y) for s in y]
-
-            ax = axs[sh_idx][int(cluster_id)]
-            ax.bar(x, relative_y)
-        for i, ax in enumerate(axs.flat):
-            ax.set_title(i % max_num_clusters)
-        for ax in axs[-1, :]:
-            for tick in ax.get_xticklabels():
-                tick.set_rotation(90)
-    fig.tight_layout(pad=1.5)
-    highlight_best_subhead(best_subhead, fig, axs)
-    plt.savefig("cluster_bars_aligned.png")
-
-
-def plot_unaligned_clusters(config, subhead_cluster_stats, best_subhead):
-    # working code for unaligned clusters
-    print("Plotting unaligned clusters")
-    plt.clf()
-    matplotlib.rcParams.update({'font.size': 22})
-    max_num_clusters = max([len(s) for s in subhead_cluster_stats])
-    num_subheads = config.num_subheads
-    fig, axs = plt.subplots(num_subheads, max_num_clusters, sharex="all", sharey="all",
-                            figsize=(max_num_clusters * 3, num_subheads * 5))
-    for sh_idx, subhead_stats in enumerate(subhead_cluster_stats):
-        for i, cluster_id in enumerate(sorted(subhead_stats.keys(), key=int)):
-            items = list(subhead_stats[cluster_id].items())
-            x, y = zip(*sorted(items, key=lambda x: x[0]))
-            relative_y = [float(s) / sum(y) for s in y]
-
-            ax = axs[sh_idx][i]
-            ax.set_title(cluster_id)
-            ax.bar(x, relative_y)
-        for ax in axs[-1, :]:
-            for tick in ax.get_xticklabels():
-                tick.set_rotation(90)
-    fig.tight_layout(pad=3.0, h_pad=4.0)
-    highlight_best_subhead(best_subhead, fig, axs)
-    plt.savefig("cluster_bars_unaligned.png")
+    return stat_dict, embeddings, sample_info
 
 
 def plot_cluster_stats(config, net):
@@ -543,10 +453,18 @@ def plot_cluster_stats(config, net):
     #   - double check data gatherin
     assert isinstance(net, ClusterNet5g) or ((isinstance(net, DataParallel)) and isinstance(net.module, ClusterNet5g)), \
         "This code was only tested for ClusterNet5g"
+    print("\n---------------------------------------------------------\nStarting evaluation")
 
-    stat_dict, embeddings = get_subhead_cluster_stats(config, net, save_results=True)
-    # with open("cluster_stats.json") as csf:
-    #     stat_dict = json.load(csf)
+    stat_dict, embeddings, best_subhead_sample_info = get_subhead_cluster_stats(config, net, save_results=True)
+    with open(os.path.join(config.result_dir, "cluster_stats.json")) as csf:
+        stat_dict = json.load(csf)
+    embeddings = torch.load(os.path.join(config.result_dir, "embeddings.pt"))
+    with open(os.path.join(config.result_dir, "sample_infos.json")) as iif:
+        best_subhead_sample_info = json.load(iif)
+    embeddings = embeddings.cpu()
+
+    plot_clusters(config, embeddings, best_subhead_sample_info)
+    plot_clusters(config, embeddings, best_subhead_sample_info, labelled_classes=("num", "date", "text", "plz", "alpha_num"))
 
     best_subhead = stat_dict["best_subhead"]
     subhead_cluster_stats = stat_dict["subhead_cluster_stats"]

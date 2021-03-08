@@ -15,7 +15,6 @@ from src.utils.cluster.transforms import sobel_make_transforms, \
 from src.utils.semisup.dataset import TenCropAndFinish
 from .general import reorder_train_deterministic
 
-
 # Used by sobel and greyscale clustering twohead scripts -----------------------
 from ... import HANDWRITING_DATASETS
 
@@ -508,7 +507,7 @@ class HandwritingDataset(Dataset):
                 samples = json.load(f)
             for sample in samples:
                 sample["path"] = os.path.join(os.path.dirname(full_dataset_description_path), sample["path"])
-            self.data.extend(samples)
+            self.data.extend(samples[:1000])
 
         self.transform = transform
         self.dataset_root = dataset_root
@@ -722,8 +721,7 @@ def create_basic_clustering_dataloaders(config):
             num_workers=0,
             drop_last=False)
 
-    return dataloaders_head_A, dataloaders_head_B, \
-           mapping_assignment_dataloader, mapping_test_dataloader
+    return dataloaders_head_A, dataloaders_head_B, mapping_assignment_dataloader, mapping_test_dataloader
 
 
 class DeterministicRandomSampler(Sampler):
