@@ -16,7 +16,7 @@ from .data import HandwritingDataset
 from .eval_metrics import _hungarian_match, _original_match, _acc
 from .plot_utils import plot_cluster_dist_per_class, plot_aligned_clusters, plot_unaligned_clusters, plot_clusters
 from .transforms import sobel_process, sobel_make_transforms
-from ...archs import ClusterNet5g
+from ...archs import ClusterNet5g, SupHead5
 
 
 def _clustering_get_data(config, net, dataloader, sobel=False, using_IR=False, get_soft=False, verbose=None):
@@ -362,10 +362,10 @@ def get_eval_dataloaders(config):
 
     dataset = HandwritingDataset(train_files, actual_dataset_root, tf1)
     train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.dataloader_batch_sz, shuffle=False,
-                                             num_workers=0, drop_last=True)
+                                                   num_workers=0, drop_last=True)
     mapping_dataset = HandwritingDataset([val_json_path], actual_dataset_root, tf3)
     val_dataloader = torch.utils.data.DataLoader(mapping_dataset, batch_size=config.batch_sz, shuffle=False,
-                                                     num_workers=0, drop_last=False)
+                                                 num_workers=0, drop_last=False)
     return train_dataloader, val_dataloader
 
 
@@ -444,27 +444,26 @@ def get_subhead_cluster_stats(config, net, save_results=False):
 
 
 def plot_cluster_stats(config, net):
-    # TODO
-    #   - plot original data dists
-    #   - for each subhead:
-    #       - analyse individual clusters and create class distribution (rank them based on purity)
-    #       - maybe plot PCA of individual clusters separately
-    #       - plot PCA of all clusters in single plot - might be messy because there are 35 clusters
-    #   - double check data gatherin
-    assert isinstance(net, ClusterNet5g) or ((isinstance(net, DataParallel)) and isinstance(net.module, ClusterNet5g)), \
-        "This code was only tested for ClusterNet5g"
+    # TODO: make this actually work for the SupHead5, this means that this function should be called inside
+    #   IID_semisup.py with a correctly parsed config
+    assert isinstance(net, ClusterNet5g) \
+           or isinstance(net, SupHead5) \
+           or ((isinstance(net, DataParallel)) and isinstance(net.module, SupHead5)) \
+           or ((isinstance(net, DataParallel)) and isinstance(net.module, ClusterNet5g)), \
+           "This code was only tested for ClusterNet5g and SupHead5"
     print("\n---------------------------------------------------------\nStarting evaluation")
 
     stat_dict, embeddings, best_subhead_sample_info = get_subhead_cluster_stats(config, net, save_results=True)
-    with open(os.path.join(config.result_dir, "cluster_stats.json")) as csf:
-        stat_dict = json.load(csf)
-    embeddings = torch.load(os.path.join(config.result_dir, "embeddings.pt"))
-    with open(os.path.join(config.result_dir, "sample_infos.json")) as iif:
-        best_subhead_sample_info = json.load(iif)
+    # with open(os.path.join(config.result_dir, "cluster_stats.json")) as csf:
+    #     stat_dict = json.load(csf)
+    # embeddings = torch.load(os.path.join(config.result_dir, "embeddings.pt"))
+    # with open(os.path.join(config.result_dir, "sample_infos.json")) as iif:
+    #     best_subhead_sample_info = json.load(iif)
     embeddings = embeddings.cpu()
 
     plot_clusters(config, embeddings, best_subhead_sample_info)
-    plot_clusters(config, embeddings, best_subhead_sample_info, labelled_classes=("num", "date", "text", "plz", "alpha_num"))
+    plot_clusters(config, embeddings, best_subhead_sample_info,
+                  labelled_classes=("num", "date", "text", "plz", "alpha_num"))
 
     best_subhead = stat_dict["best_subhead"]
     subhead_cluster_stats = stat_dict["subhead_cluster_stats"]

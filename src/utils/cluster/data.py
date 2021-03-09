@@ -507,7 +507,7 @@ class HandwritingDataset(Dataset):
                 samples = json.load(f)
             for sample in samples:
                 sample["path"] = os.path.join(os.path.dirname(full_dataset_description_path), sample["path"])
-            self.data.extend(samples[:1000])
+            self.data.extend(samples)
 
         self.transform = transform
         self.dataset_root = dataset_root
